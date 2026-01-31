@@ -12,14 +12,14 @@
   };
 
   const METRICS = {
-    sleep_hours: { label: "Sleep", unit: "h", kind: "bar", color: "#7c3aed" },
-    sugar_g: { label: "Sugar", unit: "g", kind: "bar", color: "#db2777" },
-    workout_load: { label: "Training load", unit: "au", kind: "line", color: "#f59e0b" },
-    rhr_bpm: { label: "Resting HR", unit: "bpm", kind: "line", color: "#ef4444" },
-    weight_kg: { label: "Weight", unit: "kg", kind: "line", color: "#22c55e" },
-    steps: { label: "Steps", unit: "steps", kind: "line", color: "#0ea5e9" },
-    calories: { label: "Calories", unit: "kcal", kind: "line", color: "#a78bfa" },
-    protein_g: { label: "Protein", unit: "g", kind: "line", color: "#16a34a" },
+    sleep_hours: { label: "Sleep", unit: "h", kind: "bar", color: "#5856D6" }, // systemIndigo
+    sugar_g: { label: "Sugar", unit: "g", kind: "bar", color: "#FF2D55" }, // systemPink
+    workout_load: { label: "Training load", unit: "au", kind: "line", color: "#FF9500" }, // systemOrange
+    rhr_bpm: { label: "Resting HR", unit: "bpm", kind: "line", color: "#FF3B30" }, // systemRed
+    weight_kg: { label: "Weight", unit: "kg", kind: "line", color: "#34C759" }, // systemGreen
+    steps: { label: "Steps", unit: "steps", kind: "line", color: "#5AC8FA" }, // systemTeal
+    calories: { label: "Calories", unit: "kcal", kind: "line", color: "#AF52DE" }, // systemPurple
+    protein_g: { label: "Protein", unit: "g", kind: "line", color: "#007AFF" }, // systemBlue
   };
 
   const dom = {
@@ -55,15 +55,45 @@
 
   dom.tzPill.textContent = `TZ: ${DEFAULT_TZ}`;
 
+  let themeColors = null;
+
+  function readThemeColors() {
+    const styles = getComputedStyle(document.documentElement);
+    const get = (name, fallback) => {
+      const value = styles.getPropertyValue(name).trim();
+      return value || fallback;
+    };
+    return {
+      chartGrid: get("--chart-grid", "rgba(60, 60, 67, 0.12)"),
+      chartLabel: get("--chart-label", "rgba(60, 60, 67, 0.75)"),
+      chartHover: get("--chart-hover", "rgba(60, 60, 67, 0.25)"),
+      chartAnomaly: get("--chart-anomaly", "rgba(255, 59, 48, 0.10)"),
+    };
+  }
+
+  function updateThemeColors() {
+    themeColors = readThemeColors();
+  }
+
+  updateThemeColors();
+
   function setStatus(text, kind = "info") {
     dom.statusPill.textContent = text;
-    const background =
-      kind === "error"
-        ? "rgba(239, 68, 68, 0.12)"
-        : kind === "warn"
-          ? "rgba(245, 158, 11, 0.12)"
-          : "rgba(255, 255, 255, 0.04)";
-    dom.statusPill.style.background = background;
+    dom.statusPill.classList.remove(
+      "status--info",
+      "status--warn",
+      "status--error",
+      "status--success"
+    );
+    const cls =
+      kind === "success"
+        ? "status--success"
+        : kind === "error"
+          ? "status--error"
+          : kind === "warn"
+            ? "status--warn"
+            : "status--info";
+    dom.statusPill.classList.add(cls);
   }
 
   function clearErrors() {
@@ -945,12 +975,12 @@
         <div>${escapeHtml(valueLabel)}</div>`;
 
       const margin = 14;
+      this.tooltipDiv.hidden = false;
       const rect = this.tooltipDiv.getBoundingClientRect();
       const left = Math.min(window.innerWidth - rect.width - margin, clientX + 12);
       const top = Math.min(window.innerHeight - rect.height - margin, clientY + 12);
       this.tooltipDiv.style.left = `${Math.max(margin, left)}px`;
       this.tooltipDiv.style.top = `${Math.max(margin, top)}px`;
-      this.tooltipDiv.hidden = false;
     }
 
     render() {
@@ -980,7 +1010,8 @@
       ctx.clearRect(0, 0, cssWidth, cssHeight);
 
       // grid
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      const colors = themeColors ?? readThemeColors();
+      ctx.strokeStyle = colors.chartGrid;
       ctx.lineWidth = 1;
       for (let i = 0; i <= 2; i += 1) {
         const y = padT + (plotH * i) / 2;
@@ -1007,7 +1038,7 @@
 
       // y labels
       const digits = unit === "kg" || unit === "h" ? 1 : 0;
-      ctx.fillStyle = "rgba(157,176,208,0.9)";
+      ctx.fillStyle = colors.chartLabel;
       ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
@@ -1020,7 +1051,7 @@
         const step = plotW / (n - 1);
         for (const idx of anomalies) {
           const x = padL + idx * step;
-          ctx.fillStyle = "rgba(239, 68, 68, 0.10)";
+          ctx.fillStyle = colors.chartAnomaly;
           ctx.fillRect(x - step * 0.35, padT, step * 0.7, plotH);
         }
       }
@@ -1082,7 +1113,7 @@
       }
 
       // x labels (first/middle/last)
-      ctx.fillStyle = "rgba(157,176,208,0.9)";
+      ctx.fillStyle = colors.chartLabel;
       ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = "center";
@@ -1098,7 +1129,7 @@
       if (this.hoverIndex !== null && n > 1) {
         const step = plotW / (n - 1);
         const x = padL + this.hoverIndex * step;
-        ctx.strokeStyle = "rgba(231, 238, 252, 0.25)";
+        ctx.strokeStyle = colors.chartHover;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, padT);
@@ -1115,6 +1146,19 @@
     rhr: new MiniChart(dom.charts.rhr, dom.tooltip),
     weight: new MiniChart(dom.charts.weight, dom.tooltip),
   };
+
+  const colorSchemeMedia = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+  const onThemeChange = () => {
+    updateThemeColors();
+    for (const chart of Object.values(charts)) chart.render();
+  };
+  if (colorSchemeMedia) {
+    if (typeof colorSchemeMedia.addEventListener === "function") {
+      colorSchemeMedia.addEventListener("change", onThemeChange);
+    } else if (typeof colorSchemeMedia.addListener === "function") {
+      colorSchemeMedia.addListener(onThemeChange);
+    }
+  }
 
   function renderCharts(days, anomaliesByMetric) {
     const dates = days.map((d) => d.dayKey);
@@ -1231,7 +1275,7 @@
     renderInsights(model.insights);
     renderCorrelations(model.correlationModel);
     renderCharts(model.days, model.anomaliesByMetric);
-    setStatus("Done");
+    setStatus("Done", "success");
   }
 
   async function loadSample() {

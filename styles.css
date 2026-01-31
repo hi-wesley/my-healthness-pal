@@ -1,22 +1,63 @@
 :root {
-  --bg: #0b1220;
-  --surface: #0f1a2f;
-  --surface-2: #13213b;
-  --text: #e7eefc;
-  --muted: #9db0d0;
-  --border: rgba(255, 255, 255, 0.08);
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  color-scheme: light dark;
 
-  --primary: #7c3aed;
-  --primary-2: #a78bfa;
-  --danger: #ef4444;
-  --warn: #f59e0b;
-  --ok: #22c55e;
+  /* HIG-inspired system palette (web approximations) */
+  --tint: #007aff; /* systemBlue */
+  --red: #ff3b30;
+  --orange: #ff9500;
+  --green: #34c759;
+  --pink: #ff2d55;
+  --purple: #af52de;
+  --teal: #5ac8fa;
+  --indigo: #5856d6;
+
+  /* Light mode surfaces */
+  --bg: #f2f2f7; /* systemGroupedBackground */
+  --surface: #ffffff; /* systemBackground */
+  --surface-2: #f2f2f7; /* secondarySystemGroupedBackground-ish */
+  --surface-3: rgba(0, 0, 0, 0.04); /* tertiary fill */
+
+  /* Labels / separators (approx to iOS) */
+  --text: #0b0b0f; /* label */
+  --muted: rgba(60, 60, 67, 0.6); /* secondaryLabel */
+  --separator: rgba(60, 60, 67, 0.18);
+  --focus: rgba(0, 122, 255, 0.38);
+
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 28px rgba(0, 0, 0, 0.06);
 
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
-    "Apple Color Emoji", "Segoe UI Emoji";
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI",
+    Roboto, Helvetica, Arial, system-ui, sans-serif;
+
+  --chart-grid: rgba(60, 60, 67, 0.12);
+  --chart-label: rgba(60, 60, 67, 0.75);
+  --chart-hover: rgba(60, 60, 67, 0.25);
+  --chart-anomaly: rgba(255, 59, 48, 0.10);
+  --tooltip-bg: rgba(255, 255, 255, 0.92);
+  --tooltip-border: rgba(60, 60, 67, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e; /* secondarySystemBackground */
+    --surface-2: #2c2c2e; /* tertiarySystemBackground */
+    --surface-3: rgba(255, 255, 255, 0.06);
+
+    --text: rgba(255, 255, 255, 0.92);
+    --muted: rgba(235, 235, 245, 0.6);
+    --separator: rgba(84, 84, 88, 0.65);
+
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 42px rgba(0, 0, 0, 0.55);
+
+    --chart-grid: rgba(235, 235, 245, 0.12);
+    --chart-label: rgba(235, 235, 245, 0.72);
+    --chart-hover: rgba(235, 235, 245, 0.28);
+    --chart-anomaly: rgba(255, 59, 48, 0.16);
+    --tooltip-bg: rgba(28, 28, 30, 0.92);
+    --tooltip-border: rgba(84, 84, 88, 0.65);
+  }
 }
 
 * {
@@ -31,30 +72,28 @@ body {
 body {
   margin: 0;
   font-family: var(--sans);
-  background: radial-gradient(1200px 600px at 20% -10%, rgba(124, 58, 237, 0.25), transparent),
-    radial-gradient(900px 500px at 90% 0%, rgba(34, 197, 94, 0.15), transparent),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
 }
 
 .container {
-  max-width: 1100px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 28px 18px 50px;
+  padding: 28px 18px 54px;
 }
 
 .header {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 
 h1 {
   margin: 0 0 8px;
-  font-size: 28px;
-  letter-spacing: 0.2px;
+  font-size: 30px;
+  letter-spacing: -0.2px;
 }
 
 .subtitle {
@@ -72,17 +111,50 @@ h1 {
 }
 
 .pill {
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--separator);
+  background: var(--surface);
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 12px;
   color: var(--muted);
 }
 
+.status {
+  border-color: transparent;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.status--warn {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--text);
+  border-color: rgba(255, 149, 0, 0.25);
+  background: color-mix(in srgb, var(--orange) 16%, var(--surface));
+  color: color-mix(in srgb, var(--orange) 75%, var(--text));
+  border-color: color-mix(in srgb, var(--orange) 24%, var(--separator));
+}
+
+.status--error {
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--text);
+  border-color: rgba(255, 59, 48, 0.25);
+  background: color-mix(in srgb, var(--red) 14%, var(--surface));
+  color: color-mix(in srgb, var(--red) 80%, var(--text));
+  border-color: color-mix(in srgb, var(--red) 22%, var(--separator));
+}
+
+.status--success {
+  background: rgba(52, 199, 89, 0.12);
+  color: var(--text);
+  border-color: rgba(52, 199, 89, 0.25);
+  background: color-mix(in srgb, var(--green) 14%, var(--surface));
+  color: color-mix(in srgb, var(--green) 78%, var(--text));
+  border-color: color-mix(in srgb, var(--green) 22%, var(--separator));
+}
+
 .card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--separator);
   border-radius: 16px;
   padding: 16px;
   box-shadow: var(--shadow);
@@ -168,12 +240,19 @@ input[type="file"] {
   width: 100%;
 }
 
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+
 textarea {
   width: 100%;
   border-radius: 12px;
   padding: 12px;
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
   color: var(--text);
   font-family: var(--mono);
   font-size: 12px;
@@ -184,7 +263,7 @@ textarea {
 textarea:focus,
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid rgba(167, 139, 250, 0.6);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -195,8 +274,9 @@ input:focus-visible {
 }
 
 button {
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  min-height: 44px;
+  border: 1px solid var(--separator);
+  background: var(--surface);
   color: var(--text);
   border-radius: 12px;
   padding: 10px 12px;
@@ -206,16 +286,18 @@ button {
 }
 
 button:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--surface-2);
 }
 
 button.primary {
-  background: linear-gradient(180deg, rgba(124, 58, 237, 0.9), rgba(124, 58, 237, 0.7));
-  border-color: rgba(167, 139, 250, 0.5);
+  background: var(--tint);
+  border-color: rgba(0, 122, 255, 0.35);
+  border-color: color-mix(in srgb, var(--tint) 60%, var(--separator));
+  color: #ffffff;
 }
 
 button.primary:hover {
-  background: linear-gradient(180deg, rgba(124, 58, 237, 1), rgba(124, 58, 237, 0.75));
+  filter: brightness(1.02);
 }
 
 button.secondary {
@@ -243,14 +325,14 @@ button.secondary {
   margin: 10px 0 0;
   border-radius: 12px;
   padding: 12px;
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
   overflow: auto;
 }
 
 .errors {
   margin-top: 10px;
-  color: #fecaca;
+  color: var(--red);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -258,8 +340,10 @@ button.secondary {
 .errors .error-item {
   padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(255, 59, 48, 0.25);
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, var(--separator));
+  background: color-mix(in srgb, var(--red) 12%, var(--surface));
   margin-top: 8px;
 }
 
@@ -286,8 +370,8 @@ button.secondary {
 .chart-card {
   border-radius: 14px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-2);
+  border: 1px solid var(--separator);
 }
 
 .chart-title {
@@ -311,8 +395,8 @@ canvas {
 .story-item {
   padding: 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
 }
 
 .story-item .when {
@@ -335,8 +419,8 @@ canvas {
 .insight {
   padding: 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
 }
 
 .insight .meta {
@@ -354,27 +438,36 @@ canvas {
   font-size: 11px;
   border-radius: 999px;
   padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--separator);
+  background: var(--surface);
   color: var(--muted);
 }
 
 .tag.info {
-  border-color: rgba(167, 139, 250, 0.25);
-  background: rgba(124, 58, 237, 0.12);
-  color: rgba(231, 238, 252, 0.92);
+  border-color: rgba(0, 122, 255, 0.22);
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--tint) 25%, var(--separator));
+  background: color-mix(in srgb, var(--tint) 14%, var(--surface));
+  color: color-mix(in srgb, var(--tint) 80%, var(--text));
 }
 
 .tag.warn {
-  border-color: rgba(245, 158, 11, 0.25);
-  background: rgba(245, 158, 11, 0.12);
-  color: rgba(231, 238, 252, 0.92);
+  border-color: rgba(255, 149, 0, 0.22);
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--orange) 25%, var(--separator));
+  background: color-mix(in srgb, var(--orange) 14%, var(--surface));
+  color: color-mix(in srgb, var(--orange) 80%, var(--text));
 }
 
 .tag.alert {
-  border-color: rgba(239, 68, 68, 0.25);
-  background: rgba(239, 68, 68, 0.12);
-  color: rgba(231, 238, 252, 0.92);
+  border-color: rgba(255, 59, 48, 0.22);
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--red) 25%, var(--separator));
+  background: color-mix(in srgb, var(--red) 14%, var(--surface));
+  color: color-mix(in srgb, var(--red) 80%, var(--text));
 }
 
 .insight .title {
@@ -406,8 +499,10 @@ canvas {
   max-width: 280px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(15, 26, 47, 0.95);
+  border: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
   pointer-events: none;
   font-size: 12px;
@@ -424,14 +519,14 @@ table {
   border-collapse: collapse;
   overflow: hidden;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--separator);
 }
 
 th,
 td {
   text-align: left;
   padding: 10px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--separator);
   font-size: 13px;
 }
 
@@ -440,10 +535,9 @@ th {
   font-weight: 700;
   font-size: 12px;
   letter-spacing: 0.2px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--surface-2);
 }
 
 tr:last-child td {
   border-bottom: none;
 }
-
