@@ -1,3 +1,5 @@
+import { escapeHtml, formatNumber, isFiniteNumber } from "./utils.js";
+
 let themeColors = null;
 
 export function readThemeColors() {
@@ -21,15 +23,6 @@ export function updateThemeColors() {
 
 export function getThemeColors() {
   return themeColors ?? readThemeColors();
-}
-
-function escapeHtml(s) {
-  return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
-function formatNumber(value, digits) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return Number(value).toFixed(digits);
 }
 
 const DAY_WEEKDAY_LONG_FMT = new Intl.DateTimeFormat("en-US", {
@@ -57,13 +50,10 @@ function formatDayWeekdayLong(dayKey) {
 function formatDayTickWeekday(dayKey) {
   try {
     return DAY_TICK_WEEKDAY_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-  } catch {
+  } catch (err) {
+    console.warn("[charting.js] formatDayTickWeekday failed:", err);
     return String(dayKey ?? "—").slice(5);
   }
-}
-
-function isFiniteNumber(value) {
-  return typeof value === "number" && Number.isFinite(value);
 }
 
 export class MiniChart {

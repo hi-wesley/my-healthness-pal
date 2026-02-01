@@ -1,12 +1,15 @@
-function isPlainObject(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    Object.prototype.toString.call(value) === "[object Object]"
-  );
-}
+import { isPlainObject } from "./utils.js";
 
-export async function fetchInsightsJob({ payload, signal, timeoutMs = 90_000 } = {}) {
+// Default polling constants (can be overridden via config parameter)
+const DEFAULT_POLLING_INITIAL_DELAY = 650;
+const DEFAULT_POLLING_MAX_DELAY = 2400;
+const DEFAULT_POLLING_BACKOFF = 1.35;
+
+export async function fetchInsightsJob({ payload, signal, timeoutMs = 90_000, config = {} } = {}) {
+  const initialDelay = config.insightsPollingInitialDelay ?? DEFAULT_POLLING_INITIAL_DELAY;
+  const maxDelay = config.insightsPollingMaxDelay ?? DEFAULT_POLLING_MAX_DELAY;
+  const backoff = config.insightsPollingBackoff ?? DEFAULT_POLLING_BACKOFF;
+
   const startRes = await fetch("/insights", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -27,7 +30,7 @@ export async function fetchInsightsJob({ payload, signal, timeoutMs = 90_000 } =
   if (!jobId) throw new Error("Backend did not return a jobId");
 
   const deadlineMs = Date.now() + timeoutMs;
-  let delayMs = 650;
+  let delayMs = initialDelay;
 
   while (Date.now() < deadlineMs) {
     const pollRes = await fetch(`/insights?jobId=${encodeURIComponent(jobId)}`, {
@@ -39,7 +42,7 @@ export async function fetchInsightsJob({ payload, signal, timeoutMs = 90_000 } =
 
     if (pollRes.status === 202) {
       await new Promise((r) => setTimeout(r, delayMs));
-      delayMs = Math.min(2400, Math.round(delayMs * 1.35));
+      delayMs = Math.min(maxDelay, Math.round(delayMs * backoff));
       continue;
     }
 

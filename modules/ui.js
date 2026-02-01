@@ -27,6 +27,21 @@ import {
   sum,
   toNumber,
 } from "./ui/helpers.js";
+import {
+  computeRollingStats,
+  detectZScoreAnomalies,
+  detectRhrStreak,
+} from "./ui/anomalyDetector.js";
+import {
+  findStreakIndices,
+  windowDays,
+  computeBaselineStats,
+  createInsightsBuilder,
+} from "./ui/insightsBuilder.js";
+import {
+  computeLocalToneScores,
+  applyLocalToneScores,
+} from "./ui/toneScorer.js";
 import { createSleepHelpers } from "./ui/sleep.js";
 import { createExerciseHelpers } from "./ui/exercise.js";
 import { createNutritionHelpers } from "./ui/nutrition.js";
@@ -50,6 +65,36 @@ import {
 
 (() => {
   "use strict";
+
+  // Global error handling
+  function showFatalError(error) {
+    console.error("[ui.js] Fatal error:", error);
+    const message = error?.message || String(error) || "An unexpected error occurred.";
+    const container = document.getElementById("app") || document.body;
+    const errorHtml = `
+      <div style="padding: 2rem; max-width: 600px; margin: 2rem auto; font-family: system-ui, sans-serif;">
+        <h1 style="color: #DC2626; margin-bottom: 1rem;">Something went wrong</h1>
+        <p style="color: #374151; margin-bottom: 1rem;">The fitness tracker encountered an error and couldn't load properly.</p>
+        <details style="background: #F3F4F6; padding: 1rem; border-radius: 0.5rem;">
+          <summary style="cursor: pointer; font-weight: 500;">Technical details</summary>
+          <pre style="margin-top: 0.5rem; white-space: pre-wrap; word-break: break-word; font-size: 0.875rem;">${String(message).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+        </details>
+        <p style="color: #6B7280; margin-top: 1rem; font-size: 0.875rem;">Try refreshing the page. If the problem persists, check the browser console for more details.</p>
+      </div>
+    `;
+    container.innerHTML = errorHtml;
+  }
+
+  // Set up global error handlers
+  window.addEventListener("error", (event) => {
+    console.error("[ui.js] Uncaught error:", event.error);
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[ui.js] Unhandled promise rejection:", event.reason);
+  });
+
+  try {
 
   const dom = createDom();
 
@@ -206,466 +251,20 @@ import {
     return latest;
   }
 
-  function computeRollingStats(values, lookbackDays) {
-    const means = new Array(values.length).fill(null);
-    const sds = new Array(values.length).fill(null);
-
-    for (let i = 0; i < values.length; i += 1) {
-      const window = [];
-      const start = Math.max(0, i - lookbackDays);
-      for (let j = start; j < i; j += 1) {
-        const v = values[j];
-        if (typeof v === "number" && Number.isFinite(v)) window.push(v);
-      }
-
-      if (window.length < CONFIG.baselineMinPoints) continue;
-      const mean = avg(window);
-      let variance = 0;
-      for (const v of window) variance += (v - mean) ** 2;
-      variance /= window.length;
-      const sd = Math.sqrt(variance);
-
-      means[i] = mean;
-      sds[i] = sd;
-    }
-
-    return { means, sds };
-  }
-
-  function detectZScoreAnomalies(values) {
-    const { means, sds } = computeRollingStats(values, CONFIG.baselineLookbackDays);
-    const anomalyIndices = new Set();
-
-    for (let i = 0; i < values.length; i += 1) {
-      const v = values[i];
-      const mean = means[i];
-      const sd = sds[i];
-      if (typeof v !== "number" || typeof mean !== "number" || typeof sd !== "number") continue;
-      if (sd === 0) continue;
-      const z = (v - mean) / sd;
-      if (Math.abs(z) >= CONFIG.zScoreThreshold) anomalyIndices.add(i);
-    }
-
-    return { anomalyIndices, means, sds };
-  }
-
-  function detectRhrStreak(days) {
-    const values = days.map((d) => d.rhr_bpm);
-    const numeric = values.filter((v) => typeof v === "number" && Number.isFinite(v));
-    if (numeric.length < CONFIG.baselineMinPoints) return { qualifying: [] };
-
-    const baselineMedian = median(numeric);
-    const absDevs = numeric.map((v) => Math.abs(v - baselineMedian));
-    const mad = median(absDevs);
-    let robustSd = mad * 1.4826;
-    if (!Number.isFinite(robustSd) || robustSd === 0) {
-      robustSd = stddev(numeric);
-    }
-    if (!Number.isFinite(robustSd) || robustSd === 0) return { qualifying: [] };
-
-    const threshold = baselineMedian + CONFIG.rhrElevationSd * robustSd;
-
-    let streakStart = null;
-    let streakLen = 0;
-    const streaks = [];
-
-    for (let i = 0; i < values.length; i += 1) {
-      const v = values[i];
-      const elevated = typeof v === "number" && Number.isFinite(v) ? v >= threshold : false;
-      if (elevated) {
-        if (streakStart === null) streakStart = i;
-        streakLen += 1;
-      } else {
-        if (streakLen > 0) streaks.push({ start: streakStart, end: i - 1, len: streakLen });
-        streakStart = null;
-        streakLen = 0;
-      }
-    }
-    if (streakLen > 0) streaks.push({ start: streakStart, end: values.length - 1, len: streakLen });
-
-    const qualifying = streaks.filter((s) => s.len >= CONFIG.rhrStreakDays);
-    return { qualifying, threshold, baselineMedian, robustSd };
-  }
-
-  function buildInsights(days) {
-    const insights = [];
-    const story = [];
-    const dayByKey = new Map(days.map((d) => [d.dayKey, d]));
-    const maxDayKey = days.length > 0 ? days[days.length - 1].dayKey : null;
-
-    const addInsight = (category, severity, title, body) => {
-      insights.push({ category, severity, title, body });
-    };
-
-    if (!maxDayKey) {
-      addInsight("Sleep", "info", "No sleep data yet", "Import data to see sleep patterns.");
-      addInsight("Exercise", "info", "No exercise data yet", "Import data to see exercise patterns.");
-      addInsight("Blood pressure", "info", "No blood pressure data yet", "Import data to see BP patterns.");
-      addInsight(
-        "Physiological stress",
-        "info",
-        "Stress score needs history",
-        "Import more days to build a baseline for stress scoring."
-      );
-      addInsight("Nutrition", "info", "No nutrition data yet", "Import data to see nutrition patterns.");
-      addInsight("Weight", "info", "No weight data yet", "Import data to see weight patterns.");
-      return { insights, story };
-    }
-
-    // Sleep (7d)
-    {
-      const length = FOCUS_RANGE_DEFAULTS.sleep;
-      const window = windowDays(dayByKey, maxDayKey, length);
-      const rangeLabel = formatWindowRange(maxDayKey, length);
-      const values = window.map((d) => d.sleep_hours).filter(isFiniteNumber);
-      const avgSleep = values.length > 0 ? avg(values) : null;
-      const shortFlags = window.map((d) =>
-        isFiniteNumber(d.sleep_hours) ? d.sleep_hours < CONFIG.shortSleepHours : false
-      );
-      const shortCount = shortFlags.reduce((acc, v) => acc + (v ? 1 : 0), 0);
-      const streak = findStreakIndices(shortFlags);
-
-      if (values.length === 0) {
-        addInsight(
-          "Sleep",
-          "info",
-          "No sleep logged this week",
-          `${rangeLabel}: no sleep sessions were found.`
-        );
-      } else if (shortCount === 0) {
-        addInsight(
-          "Sleep",
-          "info",
-          "Sleep looks consistent",
-          `${rangeLabel}: average ${formatMinutesAsHM(avgSleep * 60)} with no short-sleep days (<${CONFIG.shortSleepHours}h).`
-        );
-      } else {
-        const severity =
-          shortCount >= 3 || (avgSleep !== null && avgSleep < CONFIG.shortSleepHours)
-            ? "warn"
-            : "info";
-        const streakNote =
-          streak.longest.len >= 2 ? ` Longest short-sleep streak: ${streak.longest.len} days.` : "";
-        addInsight(
-          "Sleep",
-          severity,
-          "Short sleep showed up",
-          `${rangeLabel}: average ${formatMinutesAsHM(avgSleep * 60)}. Short sleep (<${CONFIG.shortSleepHours}h) on ${shortCount}/${length} days.${streakNote}`
-        );
-
-        if (severity !== "info") {
-          const startKey =
-            streak.longest.len >= 2 ? window[streak.longest.start].dayKey : window[0].dayKey;
-          const endKey =
-            streak.longest.len >= 2 ? window[streak.longest.end].dayKey : window[window.length - 1].dayKey;
-          story.push({
-            severity,
-            startDayKey: startKey,
-            endDayKey: endKey,
-            when: formatWindowRange(endKey, streak.longest.len >= 2 ? streak.longest.len : length),
-            what:
-              `Short sleep (<${CONFIG.shortSleepHours}h) has been showing up recently. ` +
-              `If you can, protect bedtime and consider reducing late caffeine/screens.`,
-          });
-        }
-      }
-    }
-
-    // Exercise (7d)
-    {
-      const length = FOCUS_RANGE_DEFAULTS.exercise;
-      const window = windowDays(dayByKey, maxDayKey, length);
-      const rangeLabel = formatWindowRange(maxDayKey, length);
-      const nums = window
-        .map((d) => d.workout_minutes)
-        .filter((v) => typeof v === "number" && Number.isFinite(v));
-      const totalMinutes = sum(nums);
-      const sessions = nums.filter((v) => v > 0).length;
-      let peak = { value: 0, dayKey: null };
-      for (const d of window) {
-        const v = d.workout_minutes;
-        if (isFiniteNumber(v) && v > peak.value) peak = { value: v, dayKey: d.dayKey };
-      }
-
-      if (sessions === 0) {
-        addInsight(
-          "Exercise",
-          "warn",
-          "No workouts logged",
-          `${rangeLabel}: no workouts were recorded. Even one short session can restart momentum.`
-        );
-        story.push({
-          severity: "warn",
-          startDayKey: window[0].dayKey,
-          endDayKey: window[window.length - 1].dayKey,
-          when: rangeLabel,
-          what:
-            "No workouts were logged recently. If you’re aiming for consistency, plan a small, easy session today.",
-        });
-      } else {
-        const peakLabel = peak.dayKey ? formatDayWeekdayShort(peak.dayKey) : "—";
-        addInsight(
-          "Exercise",
-          "info",
-          `${sessions} workout ${pluralize(sessions, "day")}`,
-          `${rangeLabel}: ${formatMinutesAsHM(totalMinutes)} total across ${sessions}/${length} days. Peak day: ${peakLabel} (${formatMinutesAsHM(peak.value)}).`
-        );
-      }
-    }
-
-    // Blood pressure (7d)
-    {
-      const length = FOCUS_RANGE_DEFAULTS.bp;
-      const window = windowDays(dayByKey, maxDayKey, length);
-      const rangeLabel = formatWindowRange(maxDayKey, length);
-      const readings = window.reduce((acc, d) => {
-        const ok = isFiniteNumber(d.bp_systolic) && isFiniteNumber(d.bp_diastolic);
-        return acc + (ok ? 1 : 0);
-      }, 0);
-      const latest = latestBpReading(days);
-      const inWindow = latest ? window.some((d) => d.dayKey === latest.dayKey) : false;
-
-      if (!latest) {
-        addInsight(
-          "Blood pressure",
-          "info",
-          "No readings yet",
-          `${rangeLabel}: no blood pressure readings were found.`
-        );
-      } else if (!inWindow) {
-        addInsight(
-          "Blood pressure",
-          "warn",
-          "No recent reading",
-          `${rangeLabel}: no readings logged. Latest was ${formatDayWeekdayLong(latest.dayKey)} (${latest.systolic}/${latest.diastolic} mmHg).`
-        );
-        story.push({
-          severity: "warn",
-          startDayKey: window[0].dayKey,
-          endDayKey: window[window.length - 1].dayKey,
-          when: rangeLabel,
-          what:
-            "No blood pressure reading was logged recently. If you track BP, try to measure at a consistent time/condition.",
-        });
-      } else {
-        const high =
-          latest.systolic >= 140 || latest.diastolic >= 90 ? "warn" : "info";
-        addInsight(
-          "Blood pressure",
-          high,
-          "Latest reading",
-          `${rangeLabel}: ${readings}/${length} days logged. Latest ${latest.systolic}/${latest.diastolic} mmHg on ${formatDayWeekdayLong(latest.dayKey)}.`
-        );
-        if (high !== "info") {
-          story.push({
-            severity: high,
-            startDayKey: latest.dayKey,
-            endDayKey: latest.dayKey,
-            when: formatDayWeekdayLong(latest.dayKey),
-            what:
-              "Your latest blood pressure reading was higher than typical targets. If this persists, consider discussing it with a clinician.",
-          });
-        }
-      }
-    }
-
-    // Physiological stress (previous day)
-    {
-      const dayKey = addDaysToKey(maxDayKey, -1);
-      const detail = computeStressForDay(dayByKey, dayKey, CONFIG);
-      if (detail.score === null) {
-        if (detail.rows.length === 0) {
-          addInsight(
-            "Physiological stress",
-            "info",
-            "Not enough data yet",
-            "Stress scoring needs sleep, resting HR, and workout history (and enough prior days to build a baseline)."
-          );
-        } else {
-          addInsight(
-            "Physiological stress",
-            "info",
-            "Baseline building",
-            `${formatDayWeekdayLong(dayKey)}: collecting enough history to score stress reliably.`
-          );
-        }
-      } else {
-        const severity = detail.label === "High" || detail.label === "Moderate" ? "warn" : "info";
-        addInsight(
-          "Physiological stress",
-          severity,
-          `${detail.label} yesterday`,
-          `${formatDayWeekdayLong(dayKey)}: score ${detail.score}/100 based on sleep/resting HR/exercise vs your recent baseline.`
-        );
-        if (detail.label === "High") {
-          story.push({
-            severity: "warn",
-            startDayKey: dayKey,
-            endDayKey: dayKey,
-            when: formatDayWeekdayLong(dayKey),
-            what:
-              "Yesterday’s stress signals were high. If you feel run down, prioritize sleep and keep today’s training easier.",
-          });
-        }
-      }
-    }
-
-    // Nutrition (most recent day)
-    {
-      const end = latestNutritionDay(days);
-      if (!end) {
-        addInsight(
-          "Nutrition",
-          "info",
-          "No logs yet",
-          "No nutrition records were found. Logging even one meal a day improves insights quickly."
-        );
-      } else {
-        const dayLabel = formatDayWeekdayLong(end.dayKey);
-        const calories = isFiniteNumber(end.calories) ? end.calories : null;
-        const protein = isFiniteNumber(end.protein_g) ? end.protein_g : null;
-        const sugar = isFiniteNumber(end.sugar_g) ? end.sugar_g : null;
-
-        const baseline = calories !== null
-          ? computeBaselineStats(dayByKey, addDaysToKey(end.dayKey, -1), "calories")
-          : null;
-        const pct =
-          baseline && baseline.mean > 0 ? (calories - baseline.mean) / baseline.mean : null;
-        const severity = pct !== null && pct >= 0.2 ? "warn" : "info";
-
-        const parts = [];
-        if (calories !== null) parts.push(`${formatNumber(calories, 0)} Calories`);
-        if (protein !== null) parts.push(`${formatNumber(protein, 0)}g protein`);
-        if (sugar !== null) parts.push(`${formatNumber(sugar, 0)}g sugar`);
-        const basePart =
-          pct === null
-            ? ""
-            : ` (vs recent avg ${formatNumber(baseline.mean, 0)} Calories: ${formatSigned(pct * 100, 0)}%)`;
-
-        addInsight(
-          "Nutrition",
-          severity,
-          "Latest day totals",
-          `${dayLabel}: ${parts.join(" • ") || "—"}${basePart}.`
-        );
-
-        if (severity !== "info") {
-          story.push({
-            severity,
-            startDayKey: end.dayKey,
-            endDayKey: end.dayKey,
-            when: dayLabel,
-            what:
-              "Calories were notably higher than your recent average. If this wasn’t intentional, review snacks/drinks and meal timing.",
-          });
-        }
-      }
-    }
-
-    // Weight (30d)
-    {
-      const length = FOCUS_RANGE_DEFAULTS.weight;
-      const window = windowDays(dayByKey, maxDayKey, length);
-      const rangeLabel = formatWindowRange(maxDayKey, length);
-      const first = firstNumberInDays(window, "weight_kg");
-      const latest = latestNumberInDays(window, "weight_kg");
-      const present = window.reduce((acc, d) => acc + (isFiniteNumber(d.weight_kg) ? 1 : 0), 0);
-
-      if (!first || !latest || latest.index <= first.index) {
-        addInsight(
-          "Weight",
-          "info",
-          "Not enough weigh-ins yet",
-          `${rangeLabel}: ${present}/${length} days logged. Add more weigh-ins to estimate trends.`
-        );
-      } else {
-        const firstLb = kgToLb(first.value);
-        const latestLb = kgToLb(latest.value);
-        const delta = latestLb - firstLb;
-        const spanDays = latest.index - first.index;
-        const perWeek = (delta / spanDays) * 7;
-        const severity = Math.abs(delta) >= 2.0 ? "warn" : "info";
-
-        addInsight(
-          "Weight",
-          severity,
-          "Trend snapshot",
-          `${rangeLabel}: ${formatNumber(firstLb, 1)} → ${formatNumber(latestLb, 1)} lb (Δ ${formatSigned(delta, 1)} lb, ~${formatSigned(perWeek, 1)} lb/week).`
-        );
-
-        if (severity !== "info") {
-          story.push({
-            severity,
-            startDayKey: first.dayKey,
-            endDayKey: latest.dayKey,
-            when: rangeLabel,
-            what:
-              "Weight has been moving noticeably. For a clearer signal, compare weekly averages and consider hydration/sodium/training changes.",
-          });
-        }
-      }
-    }
-
-    // Optional story: elevated RHR streaks (strong recovery signal)
-    {
-      const { qualifying } = detectRhrStreak(days);
-      if (qualifying.length > 0) {
-        const s = qualifying[qualifying.length - 1];
-        const slice = days.slice(s.start, s.end + 1);
-        const avgRhr = avg(slice.map((d) => d.rhr_bpm).filter((v) => typeof v === "number"));
-        story.push({
-          severity: "alert",
-          startDayKey: slice[0].dayKey,
-          endDayKey: slice[slice.length - 1].dayKey,
-          when: `${formatDayShort(slice[0].dayKey)} → ${formatDayShort(slice[slice.length - 1].dayKey)}`,
-          what:
-            `Resting heart rate was elevated for ${s.len} consecutive days (avg ${formatNumber(avgRhr, 0)} bpm). ` +
-            `This can coincide with stress, low recovery, or illness—consider easing training and prioritizing sleep.`,
-        });
-      }
-    }
-
-    return { insights, story };
-  }
-
-  function findStreakIndices(bools) {
-    let currentStart = null;
-    let currentLen = 0;
-    let longest = { start: 0, end: -1, len: 0 };
-
-    for (let i = 0; i < bools.length; i += 1) {
-      if (bools[i]) {
-        if (currentStart === null) currentStart = i;
-        currentLen += 1;
-        if (currentLen > longest.len) {
-          longest = { start: currentStart, end: i, len: currentLen };
-        }
-      } else {
-        currentStart = null;
-        currentLen = 0;
-      }
-    }
-
-    return { longest };
-  }
-
-  function windowDays(dayByKey, endDayKey, length) {
-    const out = [];
-    for (let offset = length - 1; offset >= 0; offset -= 1) {
-      const dayKey = addDaysToKey(endDayKey, -offset);
-      out.push(dayByKey.get(dayKey) ?? { dayKey });
-    }
-    return out;
-  }
-
-  function computeBaselineStats(dayByKey, endDayKey, metricKey) {
-    const window = windowDays(dayByKey, endDayKey, CONFIG.baselineLookbackDays);
-    const values = window.map((d) => d?.[metricKey]).filter(isFiniteNumber);
-    if (values.length < CONFIG.baselineMinPoints) return null;
-    const mean = avg(values);
-    const sd = stddev(values);
-    return mean === null ? null : { mean, sd: isFiniteNumber(sd) ? sd : null, n: values.length };
-  }
+  // buildInsights is now created via createInsightsBuilder
+  const buildInsights = createInsightsBuilder({
+    CONFIG,
+    FOCUS_RANGE_DEFAULTS,
+    formatDayShort: format.formatDayShort,
+    formatDayWeekdayShort: format.formatDayWeekdayShort,
+    formatDayWeekdayLong: format.formatDayWeekdayLong,
+    formatWindowRange: format.formatWindowRange,
+    latestBpReading,
+    latestNutritionDay,
+    firstNumberInDays,
+    latestNumberInDays,
+    computeStressForDay,
+  });
 
   function renderFocus(model) {
     const { days, maxDayKey, timeZone } = model;
@@ -1256,197 +855,14 @@ import {
     return { ok, hasTone };
   }
 
-  function clampToneScore(value) {
-    const score = toToneScore(value);
-    return isFiniteNumber(score) ? clamp(score, 0, 100) : null;
-  }
-
-  function scoreSleepTone(dayByKey, dayKey) {
-    const window = windowDays(dayByKey, dayKey, 7);
-    const values = window.map((d) => d.sleep_hours).filter(isFiniteNumber);
-    if (values.length === 0) return null;
-
-    const avgSleep = avg(values);
-    if (!isFiniteNumber(avgSleep)) return null;
-
-    let score =
-      avgSleep >= 7.6
-        ? 88
-        : avgSleep >= 7.0
-          ? 78
-          : avgSleep >= 6.5
-            ? 68
-            : avgSleep >= 6.0
-              ? 55
-              : avgSleep >= 5.5
-                ? 40
-                : 25;
-
-    const shortCount = window.reduce((acc, d) => {
-      const v = d.sleep_hours;
-      return acc + (isFiniteNumber(v) && v < 6 ? 1 : 0);
-    }, 0);
-    if (shortCount >= 3) score -= 10;
-    if (shortCount >= 5) score -= 8;
-
-    return clampToneScore(score);
-  }
-
-  function scoreStressTone(dayByKey, dayKey) {
-    const prevDayKey = addDaysToKey(dayKey, -1);
-    const stress = computeStressForDay(dayByKey, prevDayKey, CONFIG);
-    return clampToneScore(stress?.score ?? null);
-  }
-
-  function scoreExerciseTone(dayByKey, dayKey) {
-    const window = windowDays(dayByKey, dayKey, 7);
-    const mins = window.map((d) => d.workout_minutes).filter(isFiniteNumber);
-    if (mins.length === 0) return null;
-    const total = sum(mins);
-
-    const score =
-      total >= 210
-        ? 88
-        : total >= 150
-          ? 78
-          : total >= 90
-            ? 62
-            : total >= 45
-              ? 48
-              : total > 0
-                ? 32
-                : 20;
-    return clampToneScore(score);
-  }
-
-  function scoreNutritionTone(profileId, dayByKey, dayKey) {
-    const day = dayByKey.get(dayKey) ?? null;
-    const calories = day && isFiniteNumber(day.calories) ? day.calories : null;
-    const protein = day && isFiniteNumber(day.protein_g) ? day.protein_g : null;
-    const sugar = day && isFiniteNumber(day.sugar_g) ? day.sugar_g : null;
-    if (calories === null && protein === null && sugar === null) return null;
-
-    let score = 74;
-
-    if (isFiniteNumber(protein)) {
-      if (protein < 45) score -= 55;
-      else if (protein < 60) score -= 42;
-      else if (protein < 80) score -= 28;
-      else if (protein < 110) score -= 14;
-      else score += 6;
-    } else {
-      score -= 10;
-    }
-
-    if (isFiniteNumber(sugar)) {
-      if (sugar > 90) score -= 28;
-      else if (sugar > 70) score -= 18;
-      else if (sugar > 55) score -= 10;
-      else if (sugar > 40) score -= 6;
-    }
-
-    if (isFiniteNumber(calories)) {
-      if (profileId === "weightloss-wally") {
-        if (calories > 3000) score -= 32;
-        else if (calories > 2700) score -= 22;
-        else if (calories > 2450) score -= 14;
-        else if (calories < 1700) score -= 10;
-      } else if (profileId === "athlete-anna") {
-        if (calories < 2300) score -= 10;
-      } else {
-        if (calories > 3400) score -= 12;
-        else if (calories < 1600) score -= 12;
-      }
-    }
-
-    if (profileId === "athlete-anna" && isFiniteNumber(calories) && isFiniteNumber(protein) && calories > 0) {
-      const proteinPct = (protein * 4) / calories;
-      if (proteinPct >= 0.27) score += 10;
-      else if (proteinPct >= 0.23) score += 6;
-      else if (proteinPct < 0.17) score -= 14;
-      else if (proteinPct < 0.14) score -= 26;
-    }
-
-    if (profileId === "protein-paul" && isFiniteNumber(protein)) {
-      if (protein < 55) score -= 14;
-      if (protein < 45) score -= 10;
-    }
-
-    return clampToneScore(score);
-  }
-
-  function scoreBpTone(dayByKey, dayKey) {
-    const window = windowDays(dayByKey, dayKey, 30);
-    const latest = latestBpReading(window);
-    if (!latest) return null;
-    const sys = latest.systolic;
-    const dia = latest.diastolic;
-
-    let score = 80;
-    if (sys >= 160 || dia >= 100) score = 18;
-    else if (sys >= 140 || dia >= 90) score = 35;
-    else if (sys >= 130 || dia >= 80) score = 55;
-    else if (sys >= 120 && dia < 80) score = 72;
-    else score = 86;
-
-    return clampToneScore(score);
-  }
-
-  function scoreWeightTone(profileId, dayByKey, dayKey) {
-    const window = windowDays(dayByKey, dayKey, 30);
-    const first = firstNumberInDays(window, "weight_kg");
-    const latest = latestNumberInDays(window, "weight_kg");
-    if (!first || !latest || !isFiniteNumber(first.value) || !isFiniteNumber(latest.value)) return null;
-
-    const deltaLb = kgToLb(latest.value) - kgToLb(first.value);
-    let score = 75;
-
-    if (profileId === "weightloss-wally") {
-      score = deltaLb <= -2.5 ? 86 : deltaLb <= -1.0 ? 76 : deltaLb <= 0.5 ? 64 : 48;
-    } else {
-      const abs = Math.abs(deltaLb);
-      score = abs < 2 ? 80 : abs < 4 ? 68 : abs < 7 ? 54 : 40;
-    }
-
-    return clampToneScore(score);
-  }
-
-  function computeLocalToneScores(profileId, dayKey, model) {
-    const days = Array.isArray(model?.days) ? model.days : [];
-    const dayByKey = new Map(days.map((d) => [d.dayKey, d]));
-
-    const sleep = scoreSleepTone(dayByKey, dayKey);
-    const stress = scoreStressTone(dayByKey, dayKey);
-    const exercise = scoreExerciseTone(dayByKey, dayKey);
-    const nutrition = scoreNutritionTone(profileId, dayByKey, dayKey);
-    const bp = scoreBpTone(dayByKey, dayKey);
-    const weight = scoreWeightTone(profileId, dayByKey, dayKey);
-
-    const components = [sleep, stress, exercise, nutrition, bp, weight].filter(isFiniteNumber);
-    const overall = components.length > 0 ? clampToneScore(avg(components)) : null;
-
-    return { overall, sleep, stress, exercise, nutrition, bp, weight };
-  }
-
-  function applyLocalToneScores(profileId, dayKey, model, insights) {
-    if (!isPlainObject(insights)) return insights;
-    const scores = computeLocalToneScores(profileId, dayKey, model);
-    const withTone = (block, score) => {
-      if (!isPlainObject(block)) return block;
-      if (!isFiniteNumber(score)) return { ...block, toneScore: null, toneDayKey: null };
-      return { ...block, toneScore: score, toneDayKey: dayKey };
-    };
-
-    return {
-      overall: withTone(insights.overall, scores.overall),
-      sleep: withTone(insights.sleep, scores.sleep),
-      stress: withTone(insights.stress, scores.stress),
-      exercise: withTone(insights.exercise, scores.exercise),
-      nutrition: withTone(insights.nutrition, scores.nutrition),
-      bp: withTone(insights.bp, scores.bp),
-      weight: withTone(insights.weight, scores.weight),
-    };
-  }
+  // Tone scoring options for applyLocalToneScores
+  const toneScoreOptions = {
+    CONFIG,
+    computeStressForDay,
+    latestBpReading,
+    weightHelpers,
+    isPlainObject,
+  };
 
   function isCurrentInsightsAnalysisVersion(value) {
     const num = toNumber(value);
@@ -1541,7 +957,7 @@ import {
       if (seq !== latestSeq) return;
       if (insightRequestControllers.get(requestKey) !== controller) return;
 
-      const scoredInsights = applyLocalToneScores(profileId, dayKey, model, data.insights);
+      const scoredInsights = applyLocalToneScores(profileId, dayKey, model, data.insights, toneScoreOptions);
 
       putCachedInsights(profileId, dayKey, {
         model: data.model,
@@ -2347,44 +1763,22 @@ import {
   });
 
   const focusRenderer = createFocusRenderer({
-    dom,
-    focusCharts,
-    focusRanges,
-    CONFIG,
-    METRICS,
-    clamp,
-    addDaysToKey,
-    windowDays,
-    formatDayLong,
-    formatDayShort,
-    formatDayWeekdayShort,
-    formatDayWeekdayLong,
-    formatRangeWeekdayShort,
-    formatWindowRange,
-    formatMinutesAsHM,
-    formatNumber,
-    formatSigned,
-    escapeHtml,
-    sleepEnoughnessMessage,
-    buildSleepDetailsHtml,
-    buildSleepTooltipHtml,
-    buildExerciseDetailsHtml,
-    buildExerciseTooltipHtml,
-    formatMacroTile,
-    formatWorkoutMinutes,
-    topExerciseActivities,
-    exerciseEnoughnessMessage,
-    computeStressForDay,
-    stressHueForScore,
-    stressColorForScore,
-    isFiniteNumber,
-    avg,
-    sum,
-    kgToLb,
-    latestBpReading,
-    latestNutritionDay,
-    latestNumberInDays,
-    firstNumberInDays,
+    ui: { dom, focusCharts, focusRanges },
+    config: { CONFIG, METRICS },
+    utils: { clamp, isFiniteNumber, avg, sum, kgToLb },
+    formatters: {
+      date: { addDaysToKey, formatDayLong, formatDayShort, formatDayWeekdayShort, formatDayWeekdayLong, formatRangeWeekdayShort, formatWindowRange },
+      display: { formatMinutesAsHM, formatNumber, formatSigned, escapeHtml },
+    },
+    modules: {
+      sleep: { sleepEnoughnessMessage, buildSleepDetailsHtml, buildSleepTooltipHtml },
+      exercise: { buildExerciseDetailsHtml, buildExerciseTooltipHtml, formatWorkoutMinutes, topExerciseActivities, exerciseEnoughnessMessage },
+      nutrition: { formatMacroTile, latestNutritionDay },
+      bp: { latestBpReading },
+      weight: { latestNumberInDays, firstNumberInDays },
+      stress: { computeStressForDay, stressHueForScore, stressColorForScore },
+    },
+    helpers: { windowDays },
   });
 
   const insightsView = createInsightsView({
@@ -3613,4 +3007,8 @@ import {
   updateProfileButtonsUI();
 
   void loadSample(activeSampleProfile);
+
+  } catch (error) {
+    showFatalError(error);
+  }
 })();

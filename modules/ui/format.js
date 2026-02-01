@@ -7,7 +7,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
     try {
       new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
       return true;
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] validateTimeZone failed:", err);
       return false;
     }
   }
@@ -91,7 +92,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
   function formatDayShort(dayKey) {
     try {
       return DAY_SHORT_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] formatDayShort failed:", err);
       return String(dayKey ?? "—");
     }
   }
@@ -99,7 +101,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
   function formatDayLong(dayKey) {
     try {
       return DAY_LONG_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] formatDayLong failed:", err);
       return String(dayKey ?? "—");
     }
   }
@@ -107,7 +110,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
   function formatDayWeekdayShort(dayKey) {
     try {
       return DAY_WEEKDAY_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] formatDayWeekdayShort failed:", err);
       return String(dayKey ?? "—");
     }
   }
@@ -115,7 +119,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
   function formatDayWeekdayLong(dayKey) {
     try {
       return DAY_WEEKDAY_LONG_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] formatDayWeekdayLong failed:", err);
       return String(dayKey ?? "—");
     }
   }
@@ -123,7 +128,8 @@ export function createFormat({ fallbackTimeZone = "UTC" } = {}) {
   function formatDayTickWeekday(dayKey) {
     try {
       return DAY_TICK_WEEKDAY_FMT.format(new Date(`${dayKey}T00:00:00Z`));
-    } catch {
+    } catch (err) {
+      console.warn("[format.js] formatDayTickWeekday failed:", err);
       return String(dayKey ?? "—").slice(5);
     }
   }

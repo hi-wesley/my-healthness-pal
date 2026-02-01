@@ -1,47 +1,36 @@
 export function createFocusRenderer(ctx) {
+  // Destructure organized context
+  const { ui, config, utils, formatters, modules, helpers } = ctx;
+  const { dom, focusCharts, focusRanges } = ui;
+  const { CONFIG, METRICS } = config;
+  const { clamp, isFiniteNumber, avg, sum, kgToLb } = utils;
+  const { date: dateFormatters, display: displayFormatters } = formatters;
   const {
-    dom,
-    focusCharts,
-    focusRanges,
-    CONFIG,
-    METRICS,
-    clamp,
     addDaysToKey,
-    windowDays,
     formatDayLong,
     formatDayShort,
     formatDayWeekdayShort,
     formatDayWeekdayLong,
     formatRangeWeekdayShort,
     formatWindowRange,
-    formatMinutesAsHM,
-    formatNumber,
-    formatSigned,
-    escapeHtml,
-    sleepEnoughnessMessage,
-    buildSleepDetailsHtml,
-    buildSleepTooltipHtml,
+  } = dateFormatters;
+  const { formatMinutesAsHM, formatNumber, formatSigned, escapeHtml } = displayFormatters;
+  const { sleep, exercise, nutrition, bp, weight, stress } = modules;
+  const { sleepEnoughnessMessage, buildSleepDetailsHtml, buildSleepTooltipHtml } = sleep;
+  const {
     buildExerciseDetailsHtml,
     buildExerciseTooltipHtml,
-    formatMacroTile,
     formatWorkoutMinutes,
-    topExerciseActivities,
     exerciseEnoughnessMessage,
-    computeStressForDay,
-    stressHueForScore,
-    stressColorForScore,
-    isFiniteNumber,
-    avg,
-    sum,
-    kgToLb,
-    latestBpReading,
-    latestNutritionDay,
-    latestNumberInDays,
-    firstNumberInDays,
-  } = ctx;
+  } = exercise;
+  const { formatMacroTile, latestNutritionDay } = nutrition;
+  const { latestBpReading } = bp;
+  const { latestNumberInDays, firstNumberInDays } = weight;
+  const { computeStressForDay, stressHueForScore, stressColorForScore } = stress;
+  const { windowDays } = helpers;
 
   return function renderFocus(model) {
-    
+
         const { days, maxDayKey, timeZone } = model;
         if (!Array.isArray(days) || days.length === 0 || !maxDayKey) {
           dom.focusRange.textContent = "—";
@@ -95,17 +84,17 @@ export function createFocusRenderer(ctx) {
           focusCharts.nutritionCalories.clear();
           return;
         }
-    
+
         dom.focusRange.textContent = `As of ${formatDayLong(maxDayKey)}`;
         const dayByKey = new Map(days.map((d) => [d.dayKey, d]));
-    
+
         const sleepDays = focusRanges.sleep;
         const exerciseDays = focusRanges.exercise;
         const stressDays = focusRanges.stress;
         const nutritionDays = focusRanges.nutrition;
         const weightDays = focusRanges.weight;
         const bpDays = focusRanges.bp;
-    
+
         // Sleep (1/7/30)
         {
           const length = sleepDays;
@@ -119,7 +108,7 @@ export function createFocusRenderer(ctx) {
             return acc + (isFiniteNumber(v) && v < CONFIG.shortSleepHours ? 1 : 0);
           }, 0);
           const windowLabel = formatWindowRange(maxDayKey, length);
-    
+
           if (length === 1) {
             dom.focus.sleepDay.hidden = false;
             dom.focus.sleepDay.style.display = "";
@@ -143,7 +132,7 @@ export function createFocusRenderer(ctx) {
             const maxDefined = nums.length > 0 ? Math.max(...nums) : null;
             const yMaxBase = maxDefined === null ? 10 : Math.ceil(maxDefined + 0.5);
             const yMax = yMaxBase % 2 === 0 ? yMaxBase : yMaxBase + 1;
-    
+
             focusCharts.sleep.setSeries({
               dates: window.map((d) => d.dayKey),
               values,
@@ -166,26 +155,26 @@ export function createFocusRenderer(ctx) {
             });
           }
         }
-    
+
         // Physiological stress (1/7/30, ending previous day)
         {
           const length = stressDays;
           const endDayKey = addDaysToKey(maxDayKey, -1);
           const isSingle = length === 1;
-    
+
           dom.focus.stressCircle.hidden = !isSingle;
           dom.focus.stressCircle.style.display = isSingle ? "" : "none";
           dom.focusCharts.stress.hidden = isSingle;
           dom.focusCharts.stress.style.display = isSingle ? "none" : "";
-    
+
           if (isSingle) {
             focusCharts.stress.clear();
             const detail = computeStressForDay(dayByKey, endDayKey, CONFIG);
             dom.focus.stressMeta.hidden = false;
-    
+
             const dayLabel = formatDayWeekdayShort(endDayKey);
             dom.focus.stressMeta.textContent = `From ${dayLabel}`;
-    
+
             if (detail.score !== null) {
               const score = clamp(detail.score, 0, 100);
               dom.focus.stressNow.textContent = String(score);
@@ -199,16 +188,16 @@ export function createFocusRenderer(ctx) {
               dom.focus.stressCircle.style.removeProperty("--stress-hue");
               dom.focus.stressCircle.style.removeProperty("--stress-pct");
             }
-    
+
             dom.focus.stressNote.textContent = "This is a heuristic score based on the previous day.";
           } else {
             dom.focus.stressMeta.hidden = false;
-    
+
             const window = windowDays(dayByKey, endDayKey, length);
             dom.focus.stressMeta.textContent = `From ${formatWindowRange(endDayKey, length)}`;
             const summaries = window.map((d) => computeStressForDay(dayByKey, d.dayKey, CONFIG));
             const values = summaries.map((s) => (isFiniteNumber(s.score) ? s.score : null));
-    
+
             focusCharts.stress.setSeries({
               dates: window.map((d) => d.dayKey),
               values,
@@ -235,7 +224,7 @@ export function createFocusRenderer(ctx) {
                   </div>`;
               },
             });
-    
+
             dom.focus.stressNote.textContent =
               length === 7
                 ? "These are heuristic scores for the past 7 days."
@@ -244,7 +233,7 @@ export function createFocusRenderer(ctx) {
                   : `These are heuristic scores for the past ${length} days.`;
           }
         }
-    
+
         // Exercise (1/7/30)
         {
           const length = exerciseDays;
@@ -261,7 +250,7 @@ export function createFocusRenderer(ctx) {
             if (isFiniteNumber(v) && v > peak.value) peak = { value: v, dayKey: d.dayKey };
           }
           const windowLabel = formatWindowRange(maxDayKey, length);
-    
+
           if (length === 1) {
             dom.focusCharts.exercise.hidden = true;
             dom.focusCharts.exercise.style.display = "none";
@@ -272,7 +261,7 @@ export function createFocusRenderer(ctx) {
             dom.focus.exerciseNote.style.display = "none";
             const exerciseBody = dom.focus.exerciseDay.parentElement;
             if (exerciseBody) exerciseBody.style.minHeight = "162px";
-    
+
             const day = window.length > 0 ? window[window.length - 1] : { dayKey: maxDayKey };
             const caloriesLabel = isFiniteNumber(day.workout_calories)
               ? ` • ${formatNumber(day.workout_calories, 0)} Calories`
@@ -294,7 +283,7 @@ export function createFocusRenderer(ctx) {
             dom.focus.exerciseNote.style.display = "";
             const exerciseBody = dom.focusCharts.exercise.parentElement;
             if (exerciseBody) exerciseBody.style.removeProperty("min-height");
-    
+
             const avgMinutesPerDay = window.length > 0 ? totalMinutes / window.length : null;
             dom.focus.exerciseNow.textContent = exerciseEnoughnessMessage(avgMinutesPerDay);
             dom.focus.exerciseMeta.textContent =
@@ -302,14 +291,14 @@ export function createFocusRenderer(ctx) {
               (totalMinutes > 0
                 ? ` • Avg/day: ${formatMinutesAsHM(totalMinutes / window.length)}`
                 : "");
-    
+
             const peakLabel =
               length === 7 ? formatDayWeekdayShort(peak.dayKey) : formatDayShort(peak.dayKey);
             dom.focus.exerciseNote.textContent =
               sessions === 0
                 ? `No workouts logged in the last ${window.length} days.`
                 : `Most active day: ${peakLabel} (${formatMinutesAsHM(peak.value)}).`;
-    
+
             focusCharts.exercise.setSeries({
               dates: window.map((d) => d.dayKey),
               values,
@@ -328,7 +317,7 @@ export function createFocusRenderer(ctx) {
             });
           }
         }
-    
+
         // Nutrition (1/7/30, ending most recent nutrition day)
         {
           const length = nutritionDays;
@@ -338,21 +327,21 @@ export function createFocusRenderer(ctx) {
           const window = windowDays(dayByKey, endDayKey, length);
           const windowLabel = formatWindowRange(endDayKey, length);
           const isSingle = length === 1;
-    
+
           dom.focus.nutritionDay.hidden = !isSingle;
           dom.focus.nutritionDay.style.display = isSingle ? "" : "none";
           dom.focus.nutritionRange.hidden = isSingle;
           dom.focus.nutritionRange.style.display = isSingle ? "none" : "";
           dom.focus.nutritionMacros.hidden = !isSingle;
           dom.focusCharts.nutritionCalories.hidden = isSingle;
-    
+
           if (isSingle) {
             const calories = isFiniteNumber(endDay.calories) ? endDay.calories : null;
             dom.focus.nutritionNow.textContent =
               calories === null ? "No data" : formatNumber(calories, 0);
             dom.focus.nutritionMeta.textContent = `${formatDayWeekdayShort(endDayKey)} • One-day totals`;
             focusCharts.nutritionCalories.clear();
-    
+
             dom.focus.nutritionCarbs.textContent = formatMacroTile(endDay.carbs_g, endDay.calories, 4);
             dom.focus.nutritionProtein.textContent = formatMacroTile(
               endDay.protein_g,
@@ -365,10 +354,10 @@ export function createFocusRenderer(ctx) {
             const calNums = calValues.filter(isFiniteNumber);
             const logged = calNums.length;
             const avgCal = logged > 0 ? sum(calNums) / logged : null;
-    
+
             dom.focus.nutritionNow.textContent = avgCal === null ? "No data" : formatNumber(avgCal, 0);
             dom.focus.nutritionMeta.textContent = `${windowLabel} • Avg Calories/day`;
-    
+
             focusCharts.nutritionCalories.setSeries({
               dates: window.map((d) => d.dayKey),
               values: calValues,
@@ -382,14 +371,14 @@ export function createFocusRenderer(ctx) {
             });
           }
         }
-    
+
         // Blood pressure (7/14/30)
         {
           const length = bpDays;
           const window = windowDays(dayByKey, maxDayKey, length);
           const latest = latestBpReading(days);
           const includeWeekday = true;
-    
+
           const readings = window.filter(
             (d) => isFiniteNumber(d.bp_systolic) && isFiniteNumber(d.bp_diastolic)
           );
@@ -397,7 +386,7 @@ export function createFocusRenderer(ctx) {
             readings.length > 0 ? sum(readings.map((d) => d.bp_systolic)) / readings.length : null;
           const avgDia =
             readings.length > 0 ? sum(readings.map((d) => d.bp_diastolic)) / readings.length : null;
-    
+
           dom.focus.bpNow.textContent =
             avgSys === null || avgDia === null
               ? "—"
@@ -406,10 +395,10 @@ export function createFocusRenderer(ctx) {
             ? `${length}D avg • Latest: ${includeWeekday ? formatDayWeekdayShort(latest.dayKey) : formatDayShort(latest.dayKey)
             }`
             : `${length}D avg`;
-    
+
           const windowKeys = new Set(window.map((d) => d.dayKey));
           const inWindow = latest && windowKeys.has(latest.dayKey);
-    
+
           focusCharts.bp.setSeries({
             dates: window.map((d) => d.dayKey),
             systolic: window.map((d) => (isFiniteNumber(d.bp_systolic) ? d.bp_systolic : null)),
@@ -441,7 +430,7 @@ export function createFocusRenderer(ctx) {
                 </div>`;
             },
           });
-    
+
           if (!latest) {
             dom.focus.bpNote.textContent =
               "No blood pressure readings found. Add occasional at-home checks to spot trends.";
@@ -454,7 +443,7 @@ export function createFocusRenderer(ctx) {
               "Blood pressure varies with timing and conditions. Measure consistently for clearer trends.";
           }
         }
-    
+
         // Weight (7/14/30)
         {
           const length = weightDays;
@@ -467,7 +456,7 @@ export function createFocusRenderer(ctx) {
           const latest = latestNumberInDays(window, "weight_kg");
           const startKey = addDaysToKey(maxDayKey, -(length - 1));
           const windowLabel = formatRangeWeekdayShort(startKey, maxDayKey);
-    
+
           if (!latest) {
             dom.focus.weightNow.textContent = "—";
           } else {
@@ -480,7 +469,7 @@ export function createFocusRenderer(ctx) {
             }
             dom.focus.weightNow.textContent = label;
           }
-    
+
           if (first && latest && latest.index > first.index) {
             dom.focus.weightMeta.textContent =
               `${windowLabel} • ${present}/${window.length} days logged`;
@@ -492,7 +481,7 @@ export function createFocusRenderer(ctx) {
             dom.focus.weightNote.textContent =
               present === 0 ? "No weight readings found." : "Add more days to estimate trends.";
           }
-    
+
           focusCharts.weight.setSeries({
             dates: window.map((d) => d.dayKey),
             values,
@@ -505,6 +494,6 @@ export function createFocusRenderer(ctx) {
             yLabelDigits: 0,
           });
         }
-    
+
   };
 }

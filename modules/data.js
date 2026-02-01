@@ -1,18 +1,18 @@
-import { addDaysToKey, avg, isFiniteNumber, isPlainObject, toNumber } from "./utils.js";
+import {
+  addDaysToKey,
+  avg,
+  formatDayKey,
+  isFiniteNumber,
+  isPlainObject,
+  lbToKg,
+  toNumber,
+  validateTimeZone,
+} from "./utils.js";
 
 function parseDate(value) {
   if (typeof value !== "string") return null;
   const dt = new Date(value);
   return Number.isFinite(dt.getTime()) ? dt : null;
-}
-
-function validateTimeZone(timeZone) {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function normalizeSleepStages(raw) {
@@ -58,32 +58,6 @@ function pickPrimarySleepSession(sessions) {
   return best;
 }
 
-const dayKeyFormatterCache = new Map();
-function formatDayKey(date, timeZone, fallbackTimeZone) {
-  const tz = validateTimeZone(timeZone)
-    ? timeZone
-    : validateTimeZone(fallbackTimeZone)
-      ? fallbackTimeZone
-      : "UTC";
-  const cacheKey = tz;
-  let fmt = dayKeyFormatterCache.get(cacheKey);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    dayKeyFormatterCache.set(cacheKey, fmt);
-  }
-  return fmt.format(date);
-}
-
-const KG_PER_LB = 1 / 2.2046226218;
-function lbToKg(lb) {
-  return lb * KG_PER_LB;
-}
-
 function latestSample(samples) {
   if (!samples || samples.length === 0) return null;
   let latest = samples[0];
@@ -104,6 +78,28 @@ export function normalizePayload(raw) {
     return { user, records };
   }
   return null;
+}
+
+function checkRecordsSortOrder(normalized) {
+  if (normalized.length < 2) return;
+
+  let outOfOrderCount = 0;
+  for (let i = 1; i < normalized.length; i += 1) {
+    const prevRec = normalized[i - 1];
+    const currRec = normalized[i];
+    const prevTime = prevRec.timestamp ?? prevRec.start ?? prevRec.end;
+    const currTime = currRec.timestamp ?? currRec.start ?? currRec.end;
+    if (prevTime && currTime && currTime < prevTime) {
+      outOfOrderCount += 1;
+    }
+  }
+
+  const outOfOrderPct = outOfOrderCount / (normalized.length - 1);
+  if (outOfOrderPct > 0.1) {
+    console.warn(
+      `[data.js] Records appear unsorted: ${outOfOrderCount}/${normalized.length - 1} (${(outOfOrderPct * 100).toFixed(1)}%) are out of timestamp order. Consider sorting records chronologically for consistent results.`
+    );
+  }
 }
 
 export function normalizeAndValidateRecords(records) {
@@ -155,6 +151,8 @@ export function normalizeAndValidateRecords(records) {
       _index: i,
     });
   }
+
+  checkRecordsSortOrder(normalized);
 
   return { normalized, errors, sources };
 }
