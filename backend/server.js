@@ -109,7 +109,7 @@ app.post("/insights", async (req, res) => {
   const dayKey = typeof body.dayKey === "string" ? body.dayKey.trim() : "";
   const timeZone =
     typeof body.timeZone === "string" && body.timeZone.trim() ? body.timeZone.trim() : "America/Los_Angeles";
-  const days = Array.isArray(body.days) ? body.days.slice(-30) : [];
+  const days = Array.isArray(body.days) ? body.days.slice(-14) : [];
 
   if (!profileId) {
     res.status(400).json({ ok: false, error: 'Missing required field "profileId".' });
@@ -165,7 +165,7 @@ app.post("/insights", async (req, res) => {
     const insightResponse = await client.responses.create({
       model: OPENAI_MODEL,
       input: promptText,
-      max_output_tokens: 1200,
+      max_output_tokens: 1000,
     });
 
     const insightText = typeof insightResponse.output_text === "string" ? insightResponse.output_text : "";

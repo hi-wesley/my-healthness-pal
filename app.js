@@ -2515,7 +2515,7 @@
 
       const profile = SAMPLE_PROFILES[profileId] ?? null;
       const profileName = profile?.name ?? (typeof model?.userName === "string" ? model.userName : profileId);
-      const daysRaw = Array.isArray(model?.days) ? model.days.slice(-30) : [];
+      const daysRaw = Array.isArray(model?.days) ? model.days.slice(-14) : [];
       const dayByKey = new Map(daysRaw.map((d) => [d.dayKey, d]));
       const days = daysRaw.map((d) => {
         const prevDayKey = addDaysToKey(d.dayKey, -1);
