@@ -96,8 +96,8 @@
     ],
   };
 
-  const DEFAULT_TZ =
-    Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+  const APP_TZ = "America/Los_Angeles";
+  const DEFAULT_TZ = APP_TZ;
   dom.helloPill.textContent = "Hello, there";
 
   let themeColors = null;
@@ -2061,34 +2061,148 @@
     if (bodyEl) bodyEl.textContent = body;
   }
 
+  function normalizeInsightBlock(value) {
+    if (!isPlainObject(value)) return null;
+    const title = typeof value.title === "string" ? value.title.trim() : "";
+    const body = typeof value.body === "string" ? value.body.trim() : "";
+    if (!title || !body) return null;
+    return { title, body };
+  }
+
+  function renderAiInsights(insights) {
+    if (!isPlainObject(insights)) return false;
+
+    const overall = normalizeInsightBlock(insights.overall);
+    const sleep = normalizeInsightBlock(insights.sleep);
+    const stress = normalizeInsightBlock(insights.stress);
+    const exercise = normalizeInsightBlock(insights.exercise);
+    const nutrition = normalizeInsightBlock(insights.nutrition);
+    const bp = normalizeInsightBlock(insights.bp);
+    const weight = normalizeInsightBlock(insights.weight);
+
+    if (overall) setInsightText(dom.insights.overallTitle, dom.insights.overallBody, overall.title, overall.body);
+    if (sleep) setInsightText(dom.insights.sleepTitle, dom.insights.sleepBody, sleep.title, sleep.body);
+    if (stress) setInsightText(dom.insights.stressTitle, dom.insights.stressBody, stress.title, stress.body);
+    if (exercise) setInsightText(dom.insights.exerciseTitle, dom.insights.exerciseBody, exercise.title, exercise.body);
+    if (nutrition) setInsightText(dom.insights.nutritionTitle, dom.insights.nutritionBody, nutrition.title, nutrition.body);
+    if (bp) setInsightText(dom.insights.bpTitle, dom.insights.bpBody, bp.title, bp.body);
+    if (weight) setInsightText(dom.insights.weightTitle, dom.insights.weightBody, weight.title, weight.body);
+
+    return Boolean(overall && sleep && stress && exercise && nutrition && bp && weight);
+  }
+
+  async function ensureAiInsights(profileId, dayKey, model) {
+    const requestKey = `${profileId}:${dayKey}`;
+    const existing = insightRequestInFlight.get(requestKey);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      const cached = getCachedInsights(profileId, dayKey);
+      if (cached && renderAiInsights(cached.insights)) return;
+
+      const profile = SAMPLE_PROFILES[profileId] ?? null;
+      const profileName = profile?.name ?? (typeof model?.userName === "string" ? model.userName : profileId);
+      const days = Array.isArray(model?.days) ? model.days.slice(-60) : [];
+
+      const res = await fetch("/insights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId,
+          profileName,
+          dayKey,
+          timeZone: APP_TZ,
+          days,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const message = isPlainObject(data) && typeof data.error === "string" ? data.error : `Request failed (${res.status})`;
+        throw new Error(message);
+      }
+      if (!isPlainObject(data) || data.ok !== true) {
+        const message = isPlainObject(data) && typeof data.error === "string" ? data.error : "Unexpected backend response";
+        throw new Error(message);
+      }
+      if (!isPlainObject(data.insights)) throw new Error("Backend returned invalid insights");
+
+      putCachedInsights(profileId, dayKey, { model: data.model, insights: data.insights });
+      renderAiInsights(data.insights);
+    })().finally(() => {
+      insightRequestInFlight.delete(requestKey);
+    });
+
+    insightRequestInFlight.set(requestKey, promise);
+    return promise;
+  }
+
   function renderInsights(model) {
     const hasData = isPlainObject(model) && Array.isArray(model.days) && model.days.length > 0;
     const maxDayKey = hasData && typeof model.maxDayKey === "string" ? model.maxDayKey : null;
     const asOf = maxDayKey ? formatDayLong(maxDayKey) : null;
 
-    const placeholderTitle = hasData ? "Not generated yet" : "—";
-    const placeholderBody = hasData
-      ? "Connect your backend to generate AI insights."
-      : "—";
+    if (!hasData) {
+      setInsightText(dom.insights.overallTitle, dom.insights.overallBody, "—", "—");
+      setInsightText(dom.insights.sleepTitle, dom.insights.sleepBody, "—", "—");
+      setInsightText(dom.insights.stressTitle, dom.insights.stressBody, "—", "—");
+      setInsightText(dom.insights.exerciseTitle, dom.insights.exerciseBody, "—", "—");
+      setInsightText(dom.insights.nutritionTitle, dom.insights.nutritionBody, "—", "—");
+      setInsightText(dom.insights.bpTitle, dom.insights.bpBody, "—", "—");
+      setInsightText(dom.insights.weightTitle, dom.insights.weightBody, "—", "—");
+      return;
+    }
+
+    const todayKey = getTodayKey();
+    const profileId = typeof model.userId === "string" && model.userId ? model.userId : null;
+    const isSample = Boolean(profileId && profileId in SAMPLE_PROFILES);
+
+    if (isSample) {
+      const cached = getCachedInsights(profileId, todayKey);
+      if (cached && renderAiInsights(cached.insights)) return;
+    }
+
+    const placeholderTitle = isSample ? "Generating…" : "Not generated yet";
+    const placeholderBody = isSample
+      ? `Generating AI insights for ${todayKey}…`
+      : "Start the backend to generate AI insights.";
 
     setInsightText(
       dom.insights.overallTitle,
       dom.insights.overallBody,
       placeholderTitle,
-      hasData && asOf ? `As of ${asOf}, connect your backend to generate an overall summary.` : placeholderBody
+      asOf ? `As of ${asOf}, ${placeholderBody}` : placeholderBody
     );
-
     setInsightText(dom.insights.sleepTitle, dom.insights.sleepBody, placeholderTitle, placeholderBody);
     setInsightText(dom.insights.stressTitle, dom.insights.stressBody, placeholderTitle, placeholderBody);
     setInsightText(dom.insights.exerciseTitle, dom.insights.exerciseBody, placeholderTitle, placeholderBody);
-    setInsightText(
-      dom.insights.nutritionTitle,
-      dom.insights.nutritionBody,
-      placeholderTitle,
-      placeholderBody
-    );
+    setInsightText(dom.insights.nutritionTitle, dom.insights.nutritionBody, placeholderTitle, placeholderBody);
     setInsightText(dom.insights.bpTitle, dom.insights.bpBody, placeholderTitle, placeholderBody);
     setInsightText(dom.insights.weightTitle, dom.insights.weightBody, placeholderTitle, placeholderBody);
+
+    if (!isSample) return;
+    if (window.location.protocol === "file:") return;
+
+    if (maxDayKey && maxDayKey < todayKey) {
+      setInsightText(
+        dom.insights.overallTitle,
+        dom.insights.overallBody,
+        "Not ready yet",
+        `Today's data (${todayKey}) hasn't been generated yet.`
+      );
+      return;
+    }
+
+    void ensureAiInsights(profileId, todayKey, model).catch((err) => {
+      const message = String(err?.message || err || "Could not generate AI insights.");
+      setInsightText(dom.insights.overallTitle, dom.insights.overallBody, "AI insights unavailable", message);
+      setInsightText(dom.insights.sleepTitle, dom.insights.sleepBody, "AI insights unavailable", "—");
+      setInsightText(dom.insights.stressTitle, dom.insights.stressBody, "AI insights unavailable", "—");
+      setInsightText(dom.insights.exerciseTitle, dom.insights.exerciseBody, "AI insights unavailable", "—");
+      setInsightText(dom.insights.nutritionTitle, dom.insights.nutritionBody, "AI insights unavailable", "—");
+      setInsightText(dom.insights.bpTitle, dom.insights.bpBody, "AI insights unavailable", "—");
+      setInsightText(dom.insights.weightTitle, dom.insights.weightBody, "AI insights unavailable", "—");
+    });
   }
 
   class MiniChart {
@@ -2715,6 +2829,15 @@
       return;
     }
 
+    const userId =
+      typeof payload.user?.id === "string" && payload.user.id.trim()
+        ? payload.user.id.trim()
+        : null;
+    const userName =
+      typeof payload.user?.name === "string" && payload.user.name.trim()
+        ? payload.user.name.trim()
+        : null;
+
     setHelloName(pickUserDisplayName(payload.user));
 
     const timeZone =
@@ -2743,6 +2866,8 @@
       recordCount: normalized.length,
       sources,
       timeZone,
+      userId,
+      userName,
     };
 
     currentModel = model;
@@ -3327,6 +3452,150 @@
     }
   }
 
+  const STORAGE_VERSION = 1;
+  const STORAGE_KEYS = Object.freeze({
+    samplePrefix: `mhp.sample.v${STORAGE_VERSION}:`,
+    insightsPrefix: `mhp.insights.v${STORAGE_VERSION}:`,
+  });
+
+  function safeStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function readStoredJson(key) {
+    const raw = safeStorageGet(key);
+    if (typeof raw !== "string" || !raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredJson(key, value) {
+    try {
+      return safeStorageSet(key, JSON.stringify(value));
+    } catch {
+      return false;
+    }
+  }
+
+  function isDayKey(value) {
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  }
+
+  function getTodayKey() {
+    return formatDayKey(new Date(), APP_TZ);
+  }
+
+  const SAMPLE_VISIBLE_DAYS = 35;
+  const SAMPLE_TOTAL_DAYS = SAMPLE_VISIBLE_DAYS + CONFIG.baselineLookbackDays;
+
+  function sampleStateKey(profileId) {
+    return `${STORAGE_KEYS.samplePrefix}${profileId}`;
+  }
+
+  function getSampleState(profileId) {
+    const stored = readStoredJson(sampleStateKey(profileId));
+    if (!isPlainObject(stored)) return null;
+    if (stored.v !== STORAGE_VERSION) return null;
+    if (stored.profileId !== profileId) return null;
+    if (!isDayKey(stored.startDayKey)) return null;
+    if (!isDayKey(stored.lastDayKey)) return null;
+    if (!isPlainObject(stored.payload)) return null;
+    if (!Array.isArray(stored.payload.records)) return null;
+    return stored;
+  }
+
+  function putSampleState(profileId, state) {
+    if (!isPlainObject(state)) return false;
+    return writeStoredJson(sampleStateKey(profileId), state);
+  }
+
+  function getOrCreateSamplePayload(profileId) {
+    const todayKey = getTodayKey();
+    const tz = APP_TZ;
+    const existing = getSampleState(profileId);
+
+    if (!existing) {
+      const startDayKey = addDaysToKey(todayKey, -(SAMPLE_TOTAL_DAYS - 1));
+      const payload = buildSampleProfilePayload(profileId, tz, { startDayKey, endDayKey: todayKey });
+      putSampleState(profileId, {
+        v: STORAGE_VERSION,
+        profileId,
+        tz,
+        startDayKey,
+        lastDayKey: todayKey,
+        payload,
+      });
+      return payload;
+    }
+
+    const storedTz = typeof existing.tz === "string" ? existing.tz.trim() : "";
+    const storedUserTz =
+      isPlainObject(existing.payload.user) && typeof existing.payload.user.tz === "string"
+        ? existing.payload.user.tz.trim()
+        : "";
+    const needsTzRefresh = storedTz !== tz || storedUserTz !== tz;
+    if (existing.lastDayKey >= todayKey && !needsTzRefresh) return existing.payload;
+
+    try {
+      const payload = buildSampleProfilePayload(profileId, tz, {
+        startDayKey: existing.startDayKey,
+        endDayKey: todayKey,
+      });
+      putSampleState(profileId, {
+        ...existing,
+        tz,
+        lastDayKey: todayKey,
+        payload,
+      });
+      return payload;
+    } catch {
+      return existing.payload;
+    }
+  }
+
+  function insightsCacheKey(profileId, dayKey) {
+    return `${STORAGE_KEYS.insightsPrefix}${profileId}:${dayKey}`;
+  }
+
+  function getCachedInsights(profileId, dayKey) {
+    const stored = readStoredJson(insightsCacheKey(profileId, dayKey));
+    if (!isPlainObject(stored)) return null;
+    if (stored.v !== STORAGE_VERSION) return null;
+    if (stored.profileId !== profileId) return null;
+    if (stored.dayKey !== dayKey) return null;
+    if (!isPlainObject(stored.insights)) return null;
+    return stored;
+  }
+
+  function putCachedInsights(profileId, dayKey, entry) {
+    const payload = isPlainObject(entry) ? entry : {};
+    return writeStoredJson(insightsCacheKey(profileId, dayKey), {
+      ...payload,
+      v: STORAGE_VERSION,
+      profileId,
+      dayKey,
+      generatedAt: new Date().toISOString(),
+    });
+  }
+
+  const insightRequestInFlight = new Map();
+
   function hashSeed(str) {
     let h = 2166136261;
     const s = String(str ?? "");
@@ -3480,15 +3749,27 @@
     return out;
   }
 
-  function buildSampleProfilePayload(profileId, timeZone) {
+  function buildSampleProfilePayload(profileId, timeZone, opts = {}) {
     const tz = validateTimeZone(timeZone) ? timeZone : DEFAULT_TZ;
     const profile = SAMPLE_PROFILES[profileId] ?? SAMPLE_PROFILES[SAMPLE_PROFILE_DEFAULT];
 
-    const endDayKey = formatDayKey(new Date(), tz);
-    const visibleDays = 35;
+    const endDayKey =
+      isDayKey(opts.endDayKey) ? opts.endDayKey : formatDayKey(new Date(), tz);
     const warmupDays = CONFIG.baselineLookbackDays;
-    const totalDays = visibleDays + warmupDays;
-    const startDayKey = addDaysToKey(endDayKey, -(totalDays - 1));
+    const storyDays = SAMPLE_VISIBLE_DAYS;
+    const startDayKey = isDayKey(opts.startDayKey)
+      ? opts.startDayKey
+      : addDaysToKey(endDayKey, -(SAMPLE_TOTAL_DAYS - 1));
+
+    const startUtc = new Date(`${startDayKey}T00:00:00Z`);
+    const endUtc = new Date(`${endDayKey}T00:00:00Z`);
+    const totalDays =
+      Number.isFinite(startUtc.getTime()) && Number.isFinite(endUtc.getTime())
+        ? Math.max(
+            1,
+            Math.round((endUtc.getTime() - startUtc.getTime()) / 86400000) + 1
+          )
+        : SAMPLE_TOTAL_DAYS;
 
     const rng = makeRng(`${profileId}:${startDayKey}`);
     const records = [];
@@ -3501,7 +3782,9 @@
       const dow = dayOfWeekFromDayKey(dayKey);
       const isWeekend = dow === 0 || dow === 6;
       const storyT =
-        i < warmupDays ? 0 : (i - warmupDays) / Math.max(1, visibleDays - 1);
+        i < warmupDays
+          ? 0
+          : clamp01((i - warmupDays) / Math.max(1, storyDays - 1));
 
       // Sleep session (ends on dayKey morning)
       const wakeCfg = isWeekend ? profile.sleep.wakeWeekend : profile.sleep.wakeWeekday;
@@ -3698,7 +3981,7 @@
     activeSampleProfile =
       typeof profileId === "string" && profileId in SAMPLE_PROFILES ? profileId : SAMPLE_PROFILE_DEFAULT;
     updateProfileButtonsUI();
-    const payload = buildSampleProfilePayload(activeSampleProfile, DEFAULT_TZ);
+    const payload = getOrCreateSamplePayload(activeSampleProfile);
     const text = JSON.stringify(payload, null, 2);
     dom.jsonInput.value = text;
     analyzeFromText(text);
