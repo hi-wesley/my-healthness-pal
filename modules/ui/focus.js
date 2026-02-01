@@ -21,6 +21,7 @@ export function createFocusRenderer(ctx) {
     sleepEnoughnessMessage,
     buildSleepDetailsHtml,
     buildSleepTooltipHtml,
+    buildExerciseDetailsHtml,
     buildExerciseTooltipHtml,
     formatMacroTile,
     formatWorkoutMinutes,

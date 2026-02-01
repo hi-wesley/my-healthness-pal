@@ -566,3 +566,9 @@ export const SAMPLE_PROFILES = Object.freeze({
     },
   },
 });
+
+export const SAMPLE_PROFILE_IDS = Object.freeze(Object.keys(SAMPLE_PROFILES));
+const SAMPLE_PROFILE_ID_SET = new Set(SAMPLE_PROFILE_IDS);
+export function isSampleProfileId(profileId) {
+  return typeof profileId === "string" && SAMPLE_PROFILE_ID_SET.has(profileId);
+}

@@ -3,9 +3,36 @@ import { MiniChart, getThemeColors, updateThemeColors } from "./charting.js";
 import { aggregateDaily, normalizeAndValidateRecords, normalizePayload } from "./data.js";
 import { computeStressForDay, stressColorForScore, stressHueForScore } from "./stress.js";
 import { CONFIG, FOCUS_RANGE_DEFAULTS, METRICS } from "./ui/state.js";
-import { SAMPLE_PROFILE_DEFAULT, SAMPLE_PROFILE_VERSION, SAMPLE_PROFILES } from "./ui/samples.js";
+import {
+  SAMPLE_PROFILE_DEFAULT,
+  SAMPLE_PROFILE_VERSION,
+  SAMPLE_PROFILES,
+  isSampleProfileId,
+} from "./ui/samples.js";
 import { createDom } from "./ui/dom.js";
 import { createFormat } from "./ui/format.js";
+import {
+  avg,
+  clamp,
+  clamp01,
+  formatMinutesAsHM,
+  formatNumber,
+  formatSigned,
+  isFiniteNumber,
+  isPlainObject,
+  kgToLb,
+  lbToKg,
+  median,
+  stddev,
+  sum,
+  toNumber,
+} from "./ui/helpers.js";
+import { createSleepHelpers } from "./ui/sleep.js";
+import { createExerciseHelpers } from "./ui/exercise.js";
+import { createNutritionHelpers } from "./ui/nutrition.js";
+import { createBpHelpers } from "./ui/bp.js";
+import { createWeightHelpers } from "./ui/weight.js";
+import { normalizeInsightsDays, validateInsightsResponse } from "./ui/insightsSchema.js";
 import { wireEvents } from "./ui/events.js";
 import { createFocusRenderer } from "./ui/focus.js";
 import { createInsightsView } from "./ui/insightsView.js";
@@ -110,49 +137,6 @@ import {
     }
   }
 
-  function isPlainObject(value) {
-    return (
-      value !== null &&
-      typeof value === "object" &&
-      Object.prototype.toString.call(value) === "[object Object]"
-    );
-  }
-
-  function toNumber(value) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim() !== "") {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
-    }
-    return null;
-  }
-
-  const zonedWeekdayTimeFormatterCache = new Map();
-  function formatZonedWeekdayTime(date, timeZone) {
-    if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return "—";
-    const tz = validateTimeZone(timeZone) ? timeZone : DEFAULT_TZ;
-    let fmt = zonedWeekdayTimeFormatterCache.get(tz);
-    if (!fmt) {
-      fmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        weekday: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-      zonedWeekdayTimeFormatterCache.set(tz, fmt);
-    }
-    return fmt.format(date);
-  }
-
-  function formatZonedWeekdayTimeRange(start, end, timeZone) {
-    const a = formatZonedWeekdayTime(start, timeZone);
-    const b = formatZonedWeekdayTime(end, timeZone);
-    if (a === "—" && b === "—") return "—";
-    if (a === "—") return `→ ${b}`;
-    if (b === "—") return `${a} →`;
-    return `${a} → ${b}`;
-  }
-
   function pluralize(count, singular, plural = `${singular}s`) {
     return count === 1 ? singular : plural;
   }
@@ -174,57 +158,44 @@ import {
 
   setDashGreeting("there");
 
-  function avg(nums) {
-    if (nums.length === 0) return null;
-    let sum = 0;
-    for (const n of nums) sum += n;
-    return sum / nums.length;
-  }
+  const sleepHelpers = createSleepHelpers({
+    validateTimeZone,
+    defaultTimeZone: DEFAULT_TZ,
+    escapeHtml,
+    formatNumber,
+    formatMinutesAsHM,
+    formatDayWeekdayLong,
+    isFiniteNumber,
+    config: CONFIG,
+  });
+  const exerciseHelpers = createExerciseHelpers({
+    escapeHtml,
+    formatNumber,
+    formatMinutesAsHM,
+    formatDayWeekdayLong,
+    isFiniteNumber,
+    config: CONFIG,
+  });
+  const nutritionHelpers = createNutritionHelpers({ formatNumber, isFiniteNumber });
+  const bpHelpers = createBpHelpers({ isFiniteNumber });
+  const weightHelpers = createWeightHelpers({ isFiniteNumber });
 
-  function isFiniteNumber(value) {
-    return typeof value === "number" && Number.isFinite(value);
-  }
-
-  function sum(nums) {
-    let total = 0;
-    for (const n of nums) total += n;
-    return total;
-  }
-
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
-  }
-
-  function clamp01(value) {
-    return clamp(value, 0, 1);
-  }
-
-  const KG_PER_LB = 1 / 2.2046226218;
-  function kgToLb(kg) {
-    return kg / KG_PER_LB;
-  }
-
-  function lbToKg(lb) {
-    return lb * KG_PER_LB;
-  }
-
-  function median(nums) {
-    if (nums.length === 0) return null;
-    const sorted = [...nums].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 === 1) return sorted[mid];
-    return (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-
-  function stddev(nums) {
-    if (nums.length === 0) return null;
-    const mean = avg(nums);
-    if (mean === null) return null;
-    let variance = 0;
-    for (const v of nums) variance += (v - mean) ** 2;
-    variance /= nums.length;
-    return Math.sqrt(variance);
-  }
+  const {
+    formatZonedWeekdayTimeRange,
+    sleepEnoughnessMessage,
+    buildSleepDetailsHtml,
+    buildSleepTooltipHtml,
+  } = sleepHelpers;
+  const {
+    exerciseEnoughnessMessage,
+    formatWorkoutMinutes,
+    topExerciseActivities,
+    buildExerciseDetailsHtml,
+    buildExerciseTooltipHtml,
+  } = exerciseHelpers;
+  const { formatMacroShare, formatMacroTile, latestNutritionDay } = nutritionHelpers;
+  const { latestBpReading } = bpHelpers;
+  const { latestNumberInDays, firstNumberInDays } = weightHelpers;
 
   function latestSample(samples) {
     if (!samples || samples.length === 0) return null;
@@ -678,223 +649,6 @@ import {
     return { longest };
   }
 
-  function formatNumber(value, digits) {
-    if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-    return Number(value).toFixed(digits);
-  }
-
-  function formatSigned(value, digits) {
-    if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-    const sign = value > 0 ? "+" : "";
-    return `${sign}${Number(value).toFixed(digits)}`;
-  }
-
-  function formatMinutesAsHM(minutes) {
-    if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return "—";
-    const total = Math.max(0, Math.round(minutes));
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    if (h === 0) return `${m}m`;
-    if (m === 0) return `${h}h`;
-    return `${h}h ${m}m`;
-  }
-
-  function sleepEnoughnessMessage(hours) {
-    if (!isFiniteNumber(hours) || hours <= 0) return "No sleep data";
-
-    const bucket = clamp(Math.floor(hours), 0, 12);
-    switch (bucket) {
-      case 0:
-      case 1:
-      case 2:
-      case 3:
-        return "Barely slept";
-      case 4:
-        return "Very short sleep";
-      case 5:
-        return "Too little sleep";
-      case 6:
-        return "A bit short on sleep";
-      case CONFIG.enoughSleepMinHours:
-        return "Enough sleep";
-      case 8:
-        return "Great sleep";
-      case CONFIG.enoughSleepMaxHours:
-        return "Plenty of sleep";
-      case 10:
-        return "A lot of sleep";
-      default:
-        return "Very long sleep";
-    }
-  }
-
-  function exerciseEnoughnessMessage(avgMinutesPerDay) {
-    if (!isFiniteNumber(avgMinutesPerDay) || avgMinutesPerDay < 0) return "No exercise data";
-    return avgMinutesPerDay >= CONFIG.enoughExerciseAvgMinutes
-      ? "Enough exercise"
-      : "Not enough exercise";
-  }
-
-  function buildSleepDetailsHtml(day, timeZone) {
-    const primary = day?.sleep_primary ?? null;
-
-    const totalMin = isFiniteNumber(day?.sleep_minutes)
-      ? day.sleep_minutes
-      : isFiniteNumber(day?.sleep_hours)
-        ? day.sleep_hours * 60
-        : null;
-    const totalLabel = totalMin === null ? "—" : formatMinutesAsHM(totalMin);
-
-    const rangeLabel = primary
-      ? formatZonedWeekdayTimeRange(primary.start, primary.end, timeZone)
-      : "—";
-
-    const respirationLabel = isFiniteNumber(primary?.respiration_rpm)
-      ? `${formatNumber(primary.respiration_rpm, 1)} breaths/min`
-      : "—";
-
-    return `<div class="sleep-details">
-      <div class="sleep-row"><span class="sleep-label">Sleep</span><span class="sleep-value">${escapeHtml(
-      rangeLabel
-    )}</span></div>
-      <div class="sleep-row"><span class="sleep-label">Total sleep</span><span class="sleep-value">${escapeHtml(
-      totalLabel
-    )}</span></div>
-      <div class="sleep-row"><span class="sleep-label">Respiration</span><span class="sleep-value">${escapeHtml(
-      respirationLabel
-    )}</span></div>
-    </div>`;
-  }
-
-  function buildSleepTooltipHtml({ day, dayKey, value, timeZone, title = "Sleep" }) {
-    const primary = day?.sleep_primary ?? null;
-
-    const totalMin = isFiniteNumber(day?.sleep_minutes)
-      ? day.sleep_minutes
-      : typeof value === "number" && Number.isFinite(value)
-        ? value * 60
-        : null;
-    const totalLabel = totalMin === null ? "—" : formatMinutesAsHM(totalMin);
-
-    const rangeLabel = primary
-      ? formatZonedWeekdayTimeRange(primary.start, primary.end, timeZone)
-      : "—";
-
-    const respirationLabel = isFiniteNumber(primary?.respiration_rpm)
-      ? `${formatNumber(primary.respiration_rpm, 1)} breaths/min`
-      : "—";
-
-    return `<div class="tip-title">${escapeHtml(title)}</div>
-      <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
-      <div class="tip-rows">
-        <div class="tip-row"><span class="tip-label">Sleep</span><span class="tip-value">${escapeHtml(
-      rangeLabel
-    )}</span></div>
-        <div class="tip-row"><span class="tip-label">Total</span><span class="tip-value">${escapeHtml(
-      totalLabel
-    )}</span></div>
-        <div class="tip-row"><span class="tip-label">Respiration</span><span class="tip-value">${escapeHtml(
-      respirationLabel
-    )}</span></div>
-      </div>`;
-  }
-
-  function formatWorkoutMinutes(minutes) {
-    return formatMinutesAsHM(minutes);
-  }
-
-  function formatMacroShare(grams, totalCalories, caloriesPerGram) {
-    if (!isFiniteNumber(grams) || grams < 0) return "—";
-    const gramsLabel = `${formatNumber(grams, 0)}g`;
-    if (!isFiniteNumber(totalCalories) || totalCalories <= 0) return `—% (${gramsLabel})`;
-    const pct = Math.round(((grams * caloriesPerGram) / totalCalories) * 100);
-    return `${pct}% (${gramsLabel})`;
-  }
-
-  function formatMacroTile(grams, totalCalories, caloriesPerGram) {
-    if (!isFiniteNumber(grams)) return "No data";
-    const gramsLabel = `${formatNumber(grams, 0)}g`;
-    if (!isFiniteNumber(totalCalories) || totalCalories <= 0) return `${gramsLabel} (no total)`;
-    const pct = Math.round(((grams * caloriesPerGram) / totalCalories) * 100);
-    return `${pct}% (${gramsLabel})`;
-  }
-
-  function topExerciseActivities(day, topN = 3) {
-    const activities = Array.isArray(day?.workout_by_activity) ? day.workout_by_activity : [];
-    return activities
-      .filter((a) => isFiniteNumber(a?.duration_min) && a.duration_min > 0)
-      .slice()
-      .sort((a, b) => b.duration_min - a.duration_min)
-      .slice(0, topN);
-  }
-
-  function buildExerciseDetailsHtml(day) {
-    const totalDuration = isFiniteNumber(day?.workout_minutes)
-      ? formatWorkoutMinutes(day.workout_minutes)
-      : "—";
-    const totalCalories = isFiniteNumber(day?.workout_calories)
-      ? `${formatNumber(day.workout_calories, 0)} Calories`
-      : "—";
-
-    const top = topExerciseActivities(day, 3);
-    const activityHtml =
-      top.length > 0
-        ? top
-          .map((a) => {
-            const activity =
-              typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
-            const duration = formatWorkoutMinutes(a.duration_min);
-            const calories = isFiniteNumber(a.calories) ? `${formatNumber(a.calories, 0)} Cal` : "—";
-            return escapeHtml(`${activity}: ${duration} • ${calories}`);
-          })
-          .join("<br />")
-        : escapeHtml("—");
-
-    return `<div class="sleep-details">
-      <div class="sleep-row"><span class="sleep-label">Total duration</span><span class="sleep-value">${escapeHtml(
-      totalDuration
-    )}</span></div>
-      <div class="sleep-row"><span class="sleep-label">Calories</span><span class="sleep-value">${escapeHtml(
-      totalCalories
-    )}</span></div>
-      <div class="sleep-row"><span class="sleep-label">Top activities</span><span class="sleep-value">${activityHtml}</span></div>
-    </div>`;
-  }
-
-  function buildExerciseTooltipHtml({ day, dayKey, title = "Exercise" }) {
-    const duration = isFiniteNumber(day?.workout_minutes)
-      ? formatWorkoutMinutes(day.workout_minutes)
-      : "—";
-    const calories = isFiniteNumber(day?.workout_calories)
-      ? `${formatNumber(day.workout_calories, 0)} Calories`
-      : "—";
-
-    const top = topExerciseActivities(day, 3);
-    const breakdown =
-      top.length > 0
-        ? top
-          .map((a) => {
-            const activity =
-              typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
-            const aDur = formatWorkoutMinutes(a.duration_min);
-            const aCal = isFiniteNumber(a.calories) ? `${formatNumber(a.calories, 0)} Cal` : "—";
-            return `<div class="tip-row"><span class="tip-label">${escapeHtml(
-              activity
-            )}</span><span class="tip-value">${escapeHtml(`${aDur} • ${aCal}`)}</span></div>`;
-          })
-          .join("")
-        : `<div class="tip-row"><span class="tip-label">Exercise</span><span class="tip-value">—</span></div>`;
-
-    return `<div class="tip-title">${escapeHtml(title)}</div>
-      <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
-      <div class="tip-rows">
-        <div class="tip-row"><span class="tip-label">Total</span><span class="tip-value">${escapeHtml(
-      `${duration} • ${calories}`
-    )}</span></div>
-        ${breakdown}
-      </div>`;
-  }
-
   function windowDays(dayByKey, endDayKey, length) {
     const out = [];
     for (let offset = length - 1; offset >= 0; offset -= 1) {
@@ -902,49 +656,6 @@ import {
       out.push(dayByKey.get(dayKey) ?? { dayKey });
     }
     return out;
-  }
-
-  function latestNumberInDays(days, key) {
-    for (let i = days.length - 1; i >= 0; i -= 1) {
-      const v = days[i]?.[key];
-      if (isFiniteNumber(v)) return { value: v, dayKey: days[i].dayKey, index: i };
-    }
-    return null;
-  }
-
-  function firstNumberInDays(days, key) {
-    for (let i = 0; i < days.length; i += 1) {
-      const v = days[i]?.[key];
-      if (isFiniteNumber(v)) return { value: v, dayKey: days[i].dayKey, index: i };
-    }
-    return null;
-  }
-
-  function latestBpReading(days) {
-    for (let i = days.length - 1; i >= 0; i -= 1) {
-      const systolic = days[i]?.bp_systolic;
-      const diastolic = days[i]?.bp_diastolic;
-      if (isFiniteNumber(systolic) && isFiniteNumber(diastolic)) {
-        return { systolic, diastolic, dayKey: days[i].dayKey, index: i };
-      }
-    }
-    return null;
-  }
-
-  function latestNutritionDay(days) {
-    for (let i = days.length - 1; i >= 0; i -= 1) {
-      const d = days[i];
-      if (
-        isFiniteNumber(d?.calories) ||
-        isFiniteNumber(d?.carbs_g) ||
-        isFiniteNumber(d?.protein_g) ||
-        isFiniteNumber(d?.fat_g) ||
-        isFiniteNumber(d?.sugar_g)
-      ) {
-        return d;
-      }
-    }
-    return null;
   }
 
   function computeBaselineStats(dayByKey, endDayKey, metricKey) {
@@ -2618,6 +2329,7 @@ import {
   const sampleGenerator = createSampleGenerator({
     SAMPLE_PROFILES,
     SAMPLE_PROFILE_DEFAULT,
+    isSampleProfileId,
     CONFIG,
     DEFAULT_TZ,
     isPlainObject,
@@ -2656,6 +2368,7 @@ import {
     sleepEnoughnessMessage,
     buildSleepDetailsHtml,
     buildSleepTooltipHtml,
+    buildExerciseDetailsHtml,
     buildExerciseTooltipHtml,
     formatMacroTile,
     formatWorkoutMinutes,
@@ -2680,6 +2393,7 @@ import {
     INSIGHTS_ANALYSIS_VERSION,
     fetchInsightsJob,
     SAMPLE_PROFILES,
+    CONFIG,
     addDaysToKey,
     computeStressForDay,
     isPlainObject,
@@ -2696,6 +2410,8 @@ import {
     getCachedInsights,
     putCachedInsights,
     clearCachedInsights,
+    normalizeInsightsDays,
+    validateInsightsResponse,
   });
   const renderInsightsView = (model) => insightsView.renderInsights(model);
 
@@ -3355,6 +3071,9 @@ import {
   const SAMPLE_TOTAL_DAYS = SAMPLE_VISIBLE_DAYS + CONFIG.baselineLookbackDays;
 
   function getOrCreateSamplePayload(profileId) {
+    if (!isSampleProfileId(profileId)) {
+      throw new Error(`Unknown sample profile: ${profileId}`);
+    }
     const tz = DEFAULT_TZ;
     const todayKey = getTodayKey(tz);
     const existing = getSampleState(profileId, { expectedSampleVersion: SAMPLE_PROFILE_VERSION });
@@ -3795,12 +3514,23 @@ import {
   async function loadSample(profileId = SAMPLE_PROFILE_DEFAULT) {
     clearErrors();
     setStatus("Loading sample…");
-    activeSampleProfile =
-      typeof profileId === "string" && profileId in SAMPLE_PROFILES ? profileId : SAMPLE_PROFILE_DEFAULT;
+    const candidate = typeof profileId === "string" ? profileId : "";
+    if (!isSampleProfileId(candidate)) {
+      showErrors([`Unknown sample profile: ${candidate || "—"}`]);
+      setStatus("Unknown sample", "error");
+      return;
+    }
+    activeSampleProfile = candidate;
     setStoredActiveProfile(activeSampleProfile);
     updateProfileButtonsUI();
-    const payload = getOrCreateSamplePayload(activeSampleProfile);
-    analyzeFromText(JSON.stringify(payload, null, 2));
+    try {
+      const payload = getOrCreateSamplePayload(activeSampleProfile);
+      analyzeFromText(JSON.stringify(payload, null, 2));
+    } catch (err) {
+      const message = String(err?.message || err || "Could not load sample.");
+      showErrors([message]);
+      setStatus("Sample error", "error");
+    }
   }
 
   function clearAll() {
@@ -3877,7 +3607,7 @@ import {
   });
 
   const storedActiveProfile = getStoredActiveProfile();
-  if (typeof storedActiveProfile === "string" && storedActiveProfile in SAMPLE_PROFILES) {
+  if (isSampleProfileId(storedActiveProfile)) {
     activeSampleProfile = storedActiveProfile;
   }
   updateProfileButtonsUI();

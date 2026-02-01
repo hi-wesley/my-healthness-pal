@@ -2,6 +2,7 @@ export function createSampleGenerator(ctx) {
   const {
     SAMPLE_PROFILES,
     SAMPLE_PROFILE_DEFAULT,
+    isSampleProfileId,
     CONFIG,
     DEFAULT_TZ,
     isPlainObject,
@@ -173,6 +174,9 @@ export function createSampleGenerator(ctx) {
     }
   
     function buildSampleProfilePayload(profileId, timeZone, opts = {}) {
+      if (!isSampleProfileId(profileId)) {
+        throw new Error(`Unknown sample profile: ${profileId}`);
+      }
       const tz = validateTimeZone(timeZone) ? timeZone : DEFAULT_TZ;
       const profile = SAMPLE_PROFILES[profileId] ?? SAMPLE_PROFILES[SAMPLE_PROFILE_DEFAULT];
   
