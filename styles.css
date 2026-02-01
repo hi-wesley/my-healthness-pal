@@ -2,7 +2,8 @@
   color-scheme: light dark;
 
   /* HIG-inspired system palette (web approximations) */
-  --tint: #007aff; /* systemBlue */
+  --tint: #007aff;
+  /* systemBlue */
   --red: #ff3b30;
   --orange: #ff9500;
   --green: #34c759;
@@ -12,14 +13,20 @@
   --indigo: #5856d6;
 
   /* Light mode surfaces */
-  --bg: #f2f2f7; /* systemGroupedBackground */
-  --surface: #ffffff; /* systemBackground */
-  --surface-2: #f2f2f7; /* secondarySystemGroupedBackground-ish */
-  --surface-3: rgba(0, 0, 0, 0.04); /* tertiary fill */
+  --bg: #f2f2f7;
+  /* systemGroupedBackground */
+  --surface: #ffffff;
+  /* systemBackground */
+  --surface-2: #f2f2f7;
+  /* secondarySystemGroupedBackground-ish */
+  --surface-3: rgba(0, 0, 0, 0.04);
+  /* tertiary fill */
 
   /* Labels / separators (approx to iOS) */
-  --text: #0b0b0f; /* label */
-  --muted: rgba(60, 60, 67, 0.6); /* secondaryLabel */
+  --text: #0b0b0f;
+  /* label */
+  --muted: rgba(60, 60, 67, 0.6);
+  /* secondaryLabel */
   --separator: rgba(60, 60, 67, 0.18);
   --focus: rgba(0, 122, 255, 0.38);
 
@@ -41,8 +48,10 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #000000;
-    --surface: #1c1c1e; /* secondarySystemBackground */
-    --surface-2: #2c2c2e; /* tertiarySystemBackground */
+    --surface: #1c1c1e;
+    /* secondarySystemBackground */
+    --surface-2: #2c2c2e;
+    /* tertiarySystemBackground */
     --surface-3: rgba(255, 255, 255, 0.06);
 
     --text: rgba(255, 255, 255, 0.92);
@@ -419,7 +428,7 @@ button.secondary {
   margin-bottom: 10px;
 }
 
-.focus-head > div {
+.focus-head>div {
   min-width: 0;
 }
 
@@ -488,7 +497,7 @@ button.secondary {
   border-radius: 0;
 }
 
-.segmented-btn + .segmented-btn {
+.segmented-btn+.segmented-btn {
   border-left: 1px solid var(--separator);
 }
 
@@ -1026,4 +1035,36 @@ th {
 
 tr:last-child td {
   border-bottom: none;
+}
+
+.glass {
+  position: relative;
+  isolation: isolate;
+  border-radius: 0.67rem;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
+  overflow: hidden;
+  border: none;
+}
+
+.glass::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0) 50%);
+  border-radius: 2rem;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glass>* {
+  position: relative;
+  z-index: 1;
 }
