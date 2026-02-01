@@ -3,6 +3,9 @@
 
   const CONFIG = {
     shortSleepHours: 6,
+    enoughSleepMinHours: 7,
+    enoughSleepMaxHours: 9,
+    enoughExerciseAvgMinutes: 20,
     baselineLookbackDays: 14,
     baselineMinPoints: 5,
     zScoreThreshold: 2.0,
@@ -27,7 +30,6 @@
   };
 
   const dom = {
-    helloPill: document.getElementById("helloPill"),
     statusPill: document.getElementById("statusPill"),
     fileInput: document.getElementById("fileInput"),
     jsonInput: document.getElementById("jsonInput"),
@@ -36,6 +38,7 @@
     regenerateBtn: document.getElementById("regenerateBtn"),
     clearBtn: document.getElementById("clearBtn"),
     errors: document.getElementById("errors"),
+    focusTitle: document.getElementById("focus-title"),
     focusRange: document.getElementById("focusRange"),
     focus: {
       sleepNow: document.getElementById("sleepNow"),
@@ -60,12 +63,10 @@
       nutritionMeta: document.getElementById("nutritionMeta"),
       nutritionDay: document.getElementById("nutritionDay"),
       nutritionRange: document.getElementById("nutritionRange"),
-      nutritionGrid: document.getElementById("nutritionGrid"),
-      nutritionCalories: document.getElementById("nutritionCalories"),
+      nutritionMacros: document.getElementById("nutritionMacros"),
       nutritionCarbs: document.getElementById("nutritionCarbs"),
       nutritionProtein: document.getElementById("nutritionProtein"),
       nutritionFat: document.getElementById("nutritionFat"),
-      nutritionNote: document.getElementById("nutritionNote"),
     },
     focusCharts: {
       sleep: document.getElementById("focusSleepChart"),
@@ -100,7 +101,6 @@
   const APP_TZ = "America/Los_Angeles";
   const DEFAULT_TZ = APP_TZ;
   const INSIGHTS_ANALYSIS_VERSION = 2;
-  dom.helloPill.textContent = "Hello, there";
 
   let themeColors = null;
 
@@ -157,6 +157,7 @@
   updateRangeToggleUI();
 
   function setStatus(text, kind = "info") {
+    if (!dom.statusPill) return;
     dom.statusPill.textContent = text;
     dom.statusPill.classList.remove(
       "status--info",
@@ -324,6 +325,33 @@
     return `${a} → ${b}`;
   }
 
+  const zonedHourFormatterCache = new Map();
+  function getZonedHour(date, timeZone) {
+    if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return null;
+    const tz = validateTimeZone(timeZone) ? timeZone : DEFAULT_TZ;
+    let fmt = zonedHourFormatterCache.get(tz);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        hour: "2-digit",
+        hour12: false,
+      });
+      zonedHourFormatterCache.set(tz, fmt);
+    }
+    const hourPart = fmt.formatToParts(date).find((p) => p.type === "hour")?.value ?? "";
+    const hour = Number(hourPart);
+    return Number.isFinite(hour) ? hour : null;
+  }
+
+  function dayPartGreeting(timeZone, now = new Date()) {
+    const hour = getZonedHour(now, timeZone);
+    if (!isFiniteNumber(hour)) return "Hello,";
+    if (hour >= 5 && hour < 12) return "Good morning,";
+    if (hour >= 12 && hour < 17) return "Good afternoon,";
+    if (hour >= 17 && hour < 21) return "Good evening,";
+    return "Good night,";
+  }
+
   function addDaysToKey(dayKey, days) {
     const dt = new Date(`${dayKey}T00:00:00Z`);
     dt.setUTCDate(dt.getUTCDate() + days);
@@ -449,10 +477,13 @@
     return "there";
   }
 
-  function setHelloName(name) {
+  function setDashGreeting(name, { timeZone = DEFAULT_TZ } = {}) {
     const cleaned = typeof name === "string" ? name.trim() : "";
-    dom.helloPill.textContent = `Hello, ${cleaned || "there"}`;
+    const greeting = dayPartGreeting(timeZone);
+    if (dom.focusTitle) dom.focusTitle.textContent = `${greeting} ${cleaned || "there"}`;
   }
+
+  setDashGreeting("there");
 
   function normalizeAndValidateRecords(records) {
     const errors = [];
@@ -1230,6 +1261,42 @@
     return `${h}h ${m}m`;
   }
 
+  function sleepEnoughnessMessage(hours) {
+    if (!isFiniteNumber(hours) || hours <= 0) return "No sleep data";
+
+    const bucket = clamp(Math.floor(hours), 0, 12);
+    switch (bucket) {
+      case 0:
+      case 1:
+      case 2:
+      case 3:
+        return "Barely slept";
+      case 4:
+        return "Very short sleep";
+      case 5:
+        return "Too little sleep";
+      case 6:
+        return "A bit short on sleep";
+      case CONFIG.enoughSleepMinHours:
+        return "Enough sleep";
+      case 8:
+        return "Great sleep";
+      case CONFIG.enoughSleepMaxHours:
+        return "Plenty of sleep";
+      case 10:
+        return "A lot of sleep";
+      default:
+        return "Very long sleep";
+    }
+  }
+
+  function exerciseEnoughnessMessage(avgMinutesPerDay) {
+    if (!isFiniteNumber(avgMinutesPerDay) || avgMinutesPerDay < 0) return "No exercise data";
+    return avgMinutesPerDay >= CONFIG.enoughExerciseAvgMinutes
+      ? "Enough exercise"
+      : "Not enough exercise";
+  }
+
   function buildSleepDetailsHtml(day, timeZone) {
     const primary = day?.sleep_primary ?? null;
 
@@ -1250,14 +1317,14 @@
 
     return `<div class="sleep-details">
       <div class="sleep-row"><span class="sleep-label">Sleep</span><span class="sleep-value">${escapeHtml(
-        rangeLabel
-      )}</span></div>
+      rangeLabel
+    )}</span></div>
       <div class="sleep-row"><span class="sleep-label">Total sleep</span><span class="sleep-value">${escapeHtml(
-        totalLabel
-      )}</span></div>
+      totalLabel
+    )}</span></div>
       <div class="sleep-row"><span class="sleep-label">Respiration</span><span class="sleep-value">${escapeHtml(
-        respirationLabel
-      )}</span></div>
+      respirationLabel
+    )}</span></div>
     </div>`;
   }
 
@@ -1283,14 +1350,14 @@
       <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
       <div class="tip-rows">
         <div class="tip-row"><span class="tip-label">Sleep</span><span class="tip-value">${escapeHtml(
-          rangeLabel
-        )}</span></div>
+      rangeLabel
+    )}</span></div>
         <div class="tip-row"><span class="tip-label">Total</span><span class="tip-value">${escapeHtml(
-          totalLabel
-        )}</span></div>
+      totalLabel
+    )}</span></div>
         <div class="tip-row"><span class="tip-label">Respiration</span><span class="tip-value">${escapeHtml(
-          respirationLabel
-        )}</span></div>
+      respirationLabel
+    )}</span></div>
       </div>`;
   }
 
@@ -1332,33 +1399,27 @@
       : "—";
 
     const top = topExerciseActivities(day, 3);
-    const activityRows =
+    const activityHtml =
       top.length > 0
         ? top
-            .map((a) => {
-              const activity =
-                typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
-              const duration = formatWorkoutMinutes(a.duration_min);
-              const calories = isFiniteNumber(a.calories)
-                ? `${formatNumber(a.calories, 0)} Cal`
-                : "—";
-              return `<div class="metric-row"><span class="metric-label">${escapeHtml(
-                activity
-              )}</span><span class="metric-value">${escapeHtml(
-                `${duration} • ${calories}`
-              )}</span></div>`;
-            })
-            .join("")
-        : `<div class="metric-row"><span class="metric-label">Top activities</span><span class="metric-value">—</span></div>`;
+          .map((a) => {
+            const activity =
+              typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
+            const duration = formatWorkoutMinutes(a.duration_min);
+            const calories = isFiniteNumber(a.calories) ? `${formatNumber(a.calories, 0)} Cal` : "—";
+            return escapeHtml(`${activity}: ${duration} • ${calories}`);
+          })
+          .join("<br />")
+        : escapeHtml("—");
 
-    return `<div class="metric-list">
-      <div class="metric-row"><span class="metric-label">Total duration</span><span class="metric-value">${escapeHtml(
-        totalDuration
-      )}</span></div>
-      <div class="metric-row"><span class="metric-label">Calories</span><span class="metric-value">${escapeHtml(
-        totalCalories
-      )}</span></div>
-      ${activityRows}
+    return `<div class="sleep-details">
+      <div class="sleep-row"><span class="sleep-label">Total duration</span><span class="sleep-value">${escapeHtml(
+      totalDuration
+    )}</span></div>
+      <div class="sleep-row"><span class="sleep-label">Calories</span><span class="sleep-value">${escapeHtml(
+      totalCalories
+    )}</span></div>
+      <div class="sleep-row"><span class="sleep-label">Top activities</span><span class="sleep-value">${activityHtml}</span></div>
     </div>`;
   }
 
@@ -1374,24 +1435,24 @@
     const breakdown =
       top.length > 0
         ? top
-            .map((a) => {
-              const activity =
-                typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
-              const aDur = formatWorkoutMinutes(a.duration_min);
-              const aCal = isFiniteNumber(a.calories) ? `${formatNumber(a.calories, 0)} Cal` : "—";
-              return `<div class="tip-row"><span class="tip-label">${escapeHtml(
-                activity
-              )}</span><span class="tip-value">${escapeHtml(`${aDur} • ${aCal}`)}</span></div>`;
-            })
-            .join("")
+          .map((a) => {
+            const activity =
+              typeof a.activity === "string" && a.activity.trim() ? a.activity.trim() : "Workout";
+            const aDur = formatWorkoutMinutes(a.duration_min);
+            const aCal = isFiniteNumber(a.calories) ? `${formatNumber(a.calories, 0)} Cal` : "—";
+            return `<div class="tip-row"><span class="tip-label">${escapeHtml(
+              activity
+            )}</span><span class="tip-value">${escapeHtml(`${aDur} • ${aCal}`)}</span></div>`;
+          })
+          .join("")
         : `<div class="tip-row"><span class="tip-label">Exercise</span><span class="tip-value">—</span></div>`;
 
     return `<div class="tip-title">${escapeHtml(title)}</div>
       <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
       <div class="tip-rows">
         <div class="tip-row"><span class="tip-label">Total</span><span class="tip-value">${escapeHtml(
-          `${duration} • ${calories}`
-        )}</span></div>
+      `${duration} • ${calories}`
+    )}</span></div>
         ${breakdown}
       </div>`;
   }
@@ -1672,7 +1733,6 @@
       dom.focus.weightNote.textContent = "";
       dom.focus.nutritionNow.textContent = "—";
       dom.focus.nutritionMeta.textContent = "One-day totals";
-      dom.focus.nutritionCalories.textContent = "—";
       dom.focus.nutritionCarbs.textContent = "—";
       dom.focus.nutritionProtein.textContent = "—";
       dom.focus.nutritionFat.textContent = "—";
@@ -1680,10 +1740,9 @@
       dom.focus.nutritionDay.style.display = "";
       dom.focus.nutritionRange.hidden = true;
       dom.focus.nutritionRange.style.display = "none";
-      dom.focus.nutritionGrid.hidden = false;
+      dom.focus.nutritionMacros.hidden = false;
       dom.focusCharts.nutritionCalories.hidden = true;
       focusCharts.nutritionCalories.clear();
-      dom.focus.nutritionNote.textContent = "";
       return;
     }
 
@@ -1709,7 +1768,6 @@
         const v = d.sleep_hours;
         return acc + (isFiniteNumber(v) && v < CONFIG.shortSleepHours ? 1 : 0);
       }, 0);
-      const latest = latestNumberInDays(window, "sleep_hours");
       const windowLabel = formatWindowRange(maxDayKey, length);
 
       if (length === 1) {
@@ -1720,11 +1778,7 @@
         dom.focusCharts.sleep.hidden = true;
         focusCharts.sleep.clear();
         dom.focus.sleepMeta.textContent = windowLabel;
-        dom.focus.sleepNow.textContent = isFiniteNumber(latestDay.sleep_minutes)
-          ? formatMinutesAsHM(latestDay.sleep_minutes)
-          : latest
-            ? formatMinutesAsHM(latest.value * 60)
-            : "—";
+        dom.focus.sleepNow.textContent = sleepEnoughnessMessage(avgSleep);
         dom.focus.sleepDay.innerHTML = buildSleepDetailsHtml(latestDay, timeZone);
       } else {
         dom.focus.sleepDay.hidden = true;
@@ -1732,10 +1786,9 @@
         dom.focus.sleepRange.hidden = false;
         dom.focus.sleepRange.style.display = "";
         dom.focusCharts.sleep.hidden = false;
-        dom.focus.sleepNow.textContent = latest ? formatMinutesAsHM(latest.value * 60) : "—";
-        const prefix = length === 7 ? `${windowLabel} • ` : "";
+        dom.focus.sleepNow.textContent = sleepEnoughnessMessage(avgSleep);
         dom.focus.sleepMeta.textContent =
-          `${prefix}${length}-day avg: ${avgSleep === null ? "—" : formatMinutesAsHM(avgSleep * 60)}` +
+          `${length}-day avg: ${avgSleep === null ? "—" : formatMinutesAsHM(avgSleep * 60)}` +
           ` • Short sleep: ${shortCount}/${window.length}`;
         const maxDefined = nums.length > 0 ? Math.max(...nums) : null;
         const yMaxBase = maxDefined === null ? 10 : Math.ceil(maxDefined + 0.5);
@@ -1781,7 +1834,7 @@
         dom.focus.stressMeta.hidden = false;
 
         const dayLabel = formatDayWeekdayShort(endDayKey);
-        dom.focus.stressMeta.textContent = dayLabel;
+        dom.focus.stressMeta.textContent = `From ${dayLabel}`;
 
         if (detail.score !== null) {
           const score = clamp(detail.score, 0, 100);
@@ -1802,7 +1855,7 @@
         dom.focus.stressMeta.hidden = false;
 
         const window = windowDays(dayByKey, endDayKey, length);
-        dom.focus.stressMeta.textContent = formatWindowRange(endDayKey, length);
+        dom.focus.stressMeta.textContent = `From ${formatWindowRange(endDayKey, length)}`;
         const summaries = window.map((d) => computeStressForDay(dayByKey, d.dayKey));
         const values = summaries.map((s) => (isFiniteNumber(s.score) ? s.score : null));
 
@@ -1827,8 +1880,8 @@
               <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
               <div class="tip-rows">
                 <div class="tip-row"><span class="tip-label">Score</span><span class="tip-value">${escapeHtml(
-                  scoreLabel
-                )}</span></div>
+              scoreLabel
+            )}</span></div>
               </div>`;
           },
         });
@@ -1865,14 +1918,19 @@
         focusCharts.exercise.clear();
         dom.focus.exerciseDay.hidden = false;
         dom.focus.exerciseDay.style.display = "";
+        dom.focus.exerciseNote.hidden = true;
+        dom.focus.exerciseNote.style.display = "none";
+        const exerciseBody = dom.focus.exerciseDay.parentElement;
+        if (exerciseBody) exerciseBody.style.minHeight = "162px";
 
         const day = window.length > 0 ? window[window.length - 1] : { dayKey: maxDayKey };
         const caloriesLabel = isFiniteNumber(day.workout_calories)
           ? ` • ${formatNumber(day.workout_calories, 0)} Calories`
           : "";
-        dom.focus.exerciseNow.textContent = isFiniteNumber(day.workout_minutes)
-          ? formatWorkoutMinutes(day.workout_minutes)
-          : "—";
+        dom.focus.exerciseNow.textContent =
+          isFiniteNumber(day.workout_minutes) && day.workout_minutes > 0
+            ? formatWorkoutMinutes(day.workout_minutes)
+            : "Haven't recorded today";
         dom.focus.exerciseMeta.textContent = `${windowLabel}${caloriesLabel}`;
         dom.focus.exerciseDay.innerHTML = buildExerciseDetailsHtml(day);
         dom.focus.exerciseNote.textContent = "";
@@ -1882,12 +1940,15 @@
         dom.focus.exerciseDay.hidden = true;
         dom.focus.exerciseDay.style.display = "none";
         dom.focus.exerciseDay.textContent = "";
+        dom.focus.exerciseNote.hidden = false;
+        dom.focus.exerciseNote.style.display = "";
+        const exerciseBody = dom.focusCharts.exercise.parentElement;
+        if (exerciseBody) exerciseBody.style.removeProperty("min-height");
 
-        dom.focus.exerciseNow.textContent =
-          totalMinutes > 0 ? formatMinutesAsHM(totalMinutes) : "—";
-        const prefix = length === 7 ? `${windowLabel} • ` : "";
+        const avgMinutesPerDay = window.length > 0 ? totalMinutes / window.length : null;
+        dom.focus.exerciseNow.textContent = exerciseEnoughnessMessage(avgMinutesPerDay);
         dom.focus.exerciseMeta.textContent =
-          `${prefix}Sessions: ${sessions}/${window.length}` +
+          `Sessions: ${sessions}/${window.length}` +
           (totalMinutes > 0
             ? ` • Avg/day: ${formatMinutesAsHM(totalMinutes / window.length)}`
             : "");
@@ -1932,7 +1993,7 @@
       dom.focus.nutritionDay.style.display = isSingle ? "" : "none";
       dom.focus.nutritionRange.hidden = isSingle;
       dom.focus.nutritionRange.style.display = isSingle ? "none" : "";
-      dom.focus.nutritionGrid.hidden = !isSingle;
+      dom.focus.nutritionMacros.hidden = !isSingle;
       dom.focusCharts.nutritionCalories.hidden = isSingle;
 
       if (isSingle) {
@@ -1942,8 +2003,6 @@
         dom.focus.nutritionMeta.textContent = `${formatDayWeekdayShort(endDayKey)} • One-day totals`;
         focusCharts.nutritionCalories.clear();
 
-        dom.focus.nutritionCalories.textContent =
-          calories === null ? "No data" : formatNumber(calories, 0);
         dom.focus.nutritionCarbs.textContent = formatMacroTile(endDay.carbs_g, endDay.calories, 4);
         dom.focus.nutritionProtein.textContent = formatMacroTile(
           endDay.protein_g,
@@ -1951,9 +2010,6 @@
           4
         );
         dom.focus.nutritionFat.textContent = formatMacroTile(endDay.fat_g, endDay.calories, 9);
-        dom.focus.nutritionNote.textContent = lastNutrition
-          ? "Macros show % of total Calories (4/4/9 Cal/g)."
-          : "No nutrition records found.";
       } else {
         const calValues = window.map((d) => (isFiniteNumber(d.calories) ? d.calories : null));
         const calNums = calValues.filter(isFiniteNumber);
@@ -1974,8 +2030,6 @@
           yMin: 0,
           yLabelDigits: 0,
         });
-        dom.focus.nutritionNote.textContent =
-          logged === 0 ? "No nutrition records found." : "";
       }
     }
 
@@ -1984,12 +2038,24 @@
       const length = bpDays;
       const window = windowDays(dayByKey, maxDayKey, length);
       const latest = latestBpReading(days);
-      const includeWeekday = length === 7;
+      const includeWeekday = true;
 
-      dom.focus.bpNow.textContent = latest ? `${latest.systolic}/${latest.diastolic}` : "—";
+      const readings = window.filter(
+        (d) => isFiniteNumber(d.bp_systolic) && isFiniteNumber(d.bp_diastolic)
+      );
+      const avgSys =
+        readings.length > 0 ? sum(readings.map((d) => d.bp_systolic)) / readings.length : null;
+      const avgDia =
+        readings.length > 0 ? sum(readings.map((d) => d.bp_diastolic)) / readings.length : null;
+
+      dom.focus.bpNow.textContent =
+        avgSys === null || avgDia === null
+          ? "—"
+          : `${formatNumber(avgSys, 0)}/${formatNumber(avgDia, 0)}`;
       dom.focus.bpMeta.textContent = latest
-        ? `Latest: ${includeWeekday ? formatDayWeekdayShort(latest.dayKey) : formatDayShort(latest.dayKey)} • Last ${length} days`
-        : `Last ${length} days`;
+        ? `${length}D avg • Latest: ${includeWeekday ? formatDayWeekdayShort(latest.dayKey) : formatDayShort(latest.dayKey)
+        }`
+        : `${length}D avg`;
 
       const windowKeys = new Set(window.map((d) => d.dayKey));
       const inWindow = latest && windowKeys.has(latest.dayKey);
@@ -2013,15 +2079,15 @@
               : "—";
           return `<div class="tip-title">Blood pressure</div>
             <div class="mono">${escapeHtml(
-              includeWeekday ? formatDayWeekdayLong(dayKey) : formatDayLong(dayKey)
-            )}</div>
+            includeWeekday ? formatDayWeekdayLong(dayKey) : formatDayLong(dayKey)
+          )}</div>
             <div class="tip-rows">
               <div class="tip-row"><span class="tip-label">Systolic</span><span class="tip-value">${escapeHtml(
-                sysLabel
-              )}</span></div>
+            sysLabel
+          )}</span></div>
               <div class="tip-row"><span class="tip-label">Diastolic</span><span class="tip-value">${escapeHtml(
-                diaLabel
-              )}</span></div>
+            diaLabel
+          )}</span></div>
             </div>`;
         },
       });
@@ -2049,27 +2115,30 @@
       const present = values.filter(isFiniteNumber).length;
       const first = firstNumberInDays(window, "weight_kg");
       const latest = latestNumberInDays(window, "weight_kg");
-      const prefix = length === 7 ? `${formatWindowRange(maxDayKey, 7)} • ` : "";
+      const startKey = addDaysToKey(maxDayKey, -(length - 1));
+      const windowLabel = formatRangeWeekdayShort(startKey, maxDayKey);
 
-      dom.focus.weightNow.textContent = latest
-        ? `${formatNumber(kgToLb(latest.value), 1)} lb`
-        : "—";
+      if (!latest) {
+        dom.focus.weightNow.textContent = "—";
+      } else {
+        const latestLb = kgToLb(latest.value);
+        let label = `${formatNumber(latestLb, 1)} lb`;
+        if (first && latest.index > first.index) {
+          const firstLb = kgToLb(first.value);
+          const delta = latestLb - firstLb;
+          label += `, Δ ${formatSigned(delta, 1)} lb`;
+        }
+        dom.focus.weightNow.textContent = label;
+      }
 
       if (first && latest && latest.index > first.index) {
-        const firstLb = kgToLb(first.value);
-        const latestLb = kgToLb(latest.value);
-        const delta = latestLb - firstLb;
-        const spanDays = latest.index - first.index;
-        const perWeek = (delta / spanDays) * 7;
         dom.focus.weightMeta.textContent =
-          `${prefix}${present}/${window.length} ${pluralize(present, "day")} logged` +
-          ` • Δ ${formatSigned(delta, 1)} lb` +
-          ` (~${formatSigned(perWeek, 1)} lb/week)`;
+          `${windowLabel} • ${present}/${window.length} days logged`;
         dom.focus.weightNote.textContent =
           "For a clearer signal, compare weekly averages rather than day-to-day changes.";
       } else {
         dom.focus.weightMeta.textContent =
-          `${prefix}${present}/${window.length} ${pluralize(present, "day")} logged`;
+          `${windowLabel} • ${present}/${window.length} days logged`;
         dom.focus.weightNote.textContent =
           present === 0 ? "No weight readings found." : "Add more days to estimate trends.";
       }
@@ -2159,10 +2228,10 @@
     const blockHasTone = (block) =>
       Boolean(
         canUseTone &&
-          block &&
-          isFiniteNumber(block.toneScore) &&
-          typeof block.toneDayKey === "string" &&
-          block.toneDayKey === expected
+        block &&
+        isFiniteNumber(block.toneScore) &&
+        typeof block.toneDayKey === "string" &&
+        block.toneDayKey === expected
       );
     const hasTone =
       ok &&
@@ -2485,13 +2554,13 @@
         throw err;
       })
       .finally(() => {
-      if (insightRequestInFlight.get(requestKey) === promise) {
-        insightRequestInFlight.delete(requestKey);
-      }
-      if (insightRequestControllers.get(requestKey) === controller) {
-        insightRequestControllers.delete(requestKey);
-      }
-    });
+        if (insightRequestInFlight.get(requestKey) === promise) {
+          insightRequestInFlight.delete(requestKey);
+        }
+        if (insightRequestControllers.get(requestKey) === controller) {
+          insightRequestControllers.delete(requestKey);
+        }
+      });
 
     insightRequestInFlight.set(requestKey, promise);
     return promise;
@@ -2629,7 +2698,9 @@
       this.heightPx = heightPx;
       this.series = null;
       this.hoverIndex = null;
-      this.resizeObserver = new ResizeObserver(() => this.render());
+      this.renderScheduled = false;
+      this.canvas.style.height = `${this.heightPx}px`;
+      this.resizeObserver = new ResizeObserver(() => this.requestRender());
       this.resizeObserver.observe(this.canvas);
 
       this.canvas.addEventListener("mousemove", (ev) => this.onMove(ev));
@@ -2638,7 +2709,7 @@
 
     setSeries(series) {
       this.series = series;
-      this.render();
+      this.requestRender();
     }
 
     clear() {
@@ -2653,7 +2724,7 @@
     onLeave() {
       this.hoverIndex = null;
       this.tooltipDiv.hidden = true;
-      this.render();
+      this.requestRender();
     }
 
     onMove(ev) {
@@ -2664,7 +2735,7 @@
       if (idx === null) return;
       this.hoverIndex = idx;
       this.showTooltip(ev.clientX, ev.clientY);
-      this.render();
+      this.requestRender();
     }
 
     pickIndex(x, width) {
@@ -2716,15 +2787,27 @@
       this.tooltipDiv.style.top = `${Math.max(margin, top)}px`;
     }
 
+    requestRender() {
+      if (this.renderScheduled) return;
+      this.renderScheduled = true;
+      requestAnimationFrame(() => {
+        this.renderScheduled = false;
+        this.render();
+      });
+    }
+
     render() {
       const series = this.series;
       if (!series) return;
 
-      const cssWidth = Math.max(1, this.canvas.clientWidth);
+      const cssWidth = this.canvas.clientWidth;
+      if (!Number.isFinite(cssWidth) || cssWidth <= 0) return;
       const cssHeight = this.heightPx;
       const dpr = window.devicePixelRatio || 1;
-      this.canvas.width = Math.round(cssWidth * dpr);
-      this.canvas.height = Math.round(cssHeight * dpr);
+      const nextWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const nextHeight = Math.max(1, Math.round(cssHeight * dpr));
+      if (this.canvas.width !== nextWidth) this.canvas.width = nextWidth;
+      if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
       const ctx = this.canvas.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2958,7 +3041,9 @@
       this.heightPx = heightPx;
       this.series = null;
       this.hoverIndex = null;
-      this.resizeObserver = new ResizeObserver(() => this.render());
+      this.renderScheduled = false;
+      this.canvas.style.height = `${this.heightPx}px`;
+      this.resizeObserver = new ResizeObserver(() => this.requestRender());
       this.resizeObserver.observe(this.canvas);
 
       this.canvas.addEventListener("mousemove", (ev) => this.onMove(ev));
@@ -2967,7 +3052,7 @@
 
     setSeries(series) {
       this.series = series;
-      this.render();
+      this.requestRender();
     }
 
     clear() {
@@ -2982,7 +3067,7 @@
     onLeave() {
       this.hoverIndex = null;
       this.tooltipDiv.hidden = true;
-      this.render();
+      this.requestRender();
     }
 
     onMove(ev) {
@@ -2993,7 +3078,7 @@
       if (idx === null) return;
       this.hoverIndex = idx;
       this.showTooltip(ev.clientX, ev.clientY);
-      this.render();
+      this.requestRender();
     }
 
     pickIndex(x, width) {
@@ -3039,11 +3124,11 @@
           <div class="mono">${escapeHtml(formatDayWeekdayLong(dayKey))}</div>
           <div class="tip-rows">
             <div class="tip-row"><span class="tip-label">Systolic</span><span class="tip-value">${escapeHtml(
-              sysLabel
-            )}</span></div>
+          sysLabel
+        )}</span></div>
             <div class="tip-row"><span class="tip-label">Diastolic</span><span class="tip-value">${escapeHtml(
-              diaLabel
-            )}</span></div>
+          diaLabel
+        )}</span></div>
           </div>`;
       }
 
@@ -3057,15 +3142,27 @@
       this.tooltipDiv.style.top = `${Math.max(margin, top)}px`;
     }
 
+    requestRender() {
+      if (this.renderScheduled) return;
+      this.renderScheduled = true;
+      requestAnimationFrame(() => {
+        this.renderScheduled = false;
+        this.render();
+      });
+    }
+
     render() {
       const series = this.series;
       if (!series) return;
 
-      const cssWidth = Math.max(1, this.canvas.clientWidth);
+      const cssWidth = this.canvas.clientWidth;
+      if (!Number.isFinite(cssWidth) || cssWidth <= 0) return;
       const cssHeight = this.heightPx;
       const dpr = window.devicePixelRatio || 1;
-      this.canvas.width = Math.round(cssWidth * dpr);
-      this.canvas.height = Math.round(cssHeight * dpr);
+      const nextWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const nextHeight = Math.max(1, Math.round(cssHeight * dpr));
+      if (this.canvas.width !== nextWidth) this.canvas.width = nextWidth;
+      if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
       const ctx = this.canvas.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3202,16 +3299,16 @@
     }
   }
 
-	  const focusCharts = {
-	    sleep: new MiniChart(dom.focusCharts.sleep, dom.tooltip, { heightPx: 120 }),
-	    stress: new MiniChart(dom.focusCharts.stress, dom.tooltip, { heightPx: 120 }),
-	    exercise: new MiniChart(dom.focusCharts.exercise, dom.tooltip, { heightPx: 120 }),
-	    nutritionCalories: new MiniChart(dom.focusCharts.nutritionCalories, dom.tooltip, {
-	      heightPx: 110,
-	    }),
-	    bp: new PairedLineChart(dom.focusCharts.bp, dom.tooltip, { heightPx: 120 }),
-	    weight: new MiniChart(dom.focusCharts.weight, dom.tooltip, { heightPx: 120 }),
-	  };
+  const focusCharts = {
+    sleep: new MiniChart(dom.focusCharts.sleep, dom.tooltip, { heightPx: 120 }),
+    stress: new MiniChart(dom.focusCharts.stress, dom.tooltip, { heightPx: 120 }),
+    exercise: new MiniChart(dom.focusCharts.exercise, dom.tooltip, { heightPx: 120 }),
+    nutritionCalories: new MiniChart(dom.focusCharts.nutritionCalories, dom.tooltip, {
+      heightPx: 110,
+    }),
+    bp: new PairedLineChart(dom.focusCharts.bp, dom.tooltip, { heightPx: 120 }),
+    weight: new MiniChart(dom.focusCharts.weight, dom.tooltip, { heightPx: 120 }),
+  };
 
   const colorSchemeMedia = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
   const onThemeChange = () => {
@@ -3255,12 +3352,12 @@
         ? payload.user.name.trim()
         : null;
 
-    setHelloName(pickUserDisplayName(payload.user));
-
     const timeZone =
       typeof payload.user.tz === "string" && validateTimeZone(payload.user.tz)
         ? payload.user.tz
         : DEFAULT_TZ;
+
+    setDashGreeting(pickUserDisplayName(payload.user), { timeZone });
 
     const { normalized, errors, sources } = normalizeAndValidateRecords(payload.records);
     if (errors.length > 0) {
@@ -3872,6 +3969,7 @@
 
   const STORAGE_VERSION = 1;
   const STORAGE_KEYS = Object.freeze({
+    activeProfile: `mhp.activeProfile.v${STORAGE_VERSION}`,
     samplePrefix: `mhp.sample.v${STORAGE_VERSION}:`,
     insightsPrefix: `mhp.insights.v${STORAGE_VERSION}:`,
   });
@@ -4205,9 +4303,9 @@
     const totalDays =
       Number.isFinite(startUtc.getTime()) && Number.isFinite(endUtc.getTime())
         ? Math.max(
-            1,
-            Math.round((endUtc.getTime() - startUtc.getTime()) / 86400000) + 1
-          )
+          1,
+          Math.round((endUtc.getTime() - startUtc.getTime()) / 86400000) + 1
+        )
         : SAMPLE_TOTAL_DAYS;
 
     const rng = makeRng(`${profileId}:${startDayKey}`);
@@ -4295,9 +4393,9 @@
       const rhrBase = lerp(profile.rhr.baseStart, profile.rhr.baseEnd, storyT);
       const rhr = clamp(
         rhrBase +
-          randNormal(rng) * profile.rhr.sd +
-          (sleepHours < 6 ? profile.rhr.poorSleepBpmDelta : 0) +
-          (prevWorkoutLoad > 0 ? (prevWorkoutLoad / 60) * profile.rhr.prevLoadBpmPerHour : 0),
+        randNormal(rng) * profile.rhr.sd +
+        (sleepHours < 6 ? profile.rhr.poorSleepBpmDelta : 0) +
+        (prevWorkoutLoad > 0 ? (prevWorkoutLoad / 60) * profile.rhr.prevLoadBpmPerHour : 0),
         42,
         120
       );
@@ -4318,20 +4416,20 @@
 
       let protein_g = Math.round(
         lerp(profile.nutrition.proteinStart, profile.nutrition.proteinEnd, storyT) +
-          randNormal(rng) * profile.nutrition.sdProtein
+        randNormal(rng) * profile.nutrition.sdProtein
       );
       protein_g = clamp(protein_g, profile.nutrition.minProtein, profile.nutrition.maxProtein);
 
       let fat_g = Math.round(
         lerp(profile.nutrition.fatStart, profile.nutrition.fatEnd, storyT) +
-          randNormal(rng) * profile.nutrition.sdFat
+        randNormal(rng) * profile.nutrition.sdFat
       );
       fat_g = clamp(fat_g, profile.nutrition.minFat, profile.nutrition.maxFat);
 
       let sugar_g = Math.round(
         (profile.nutrition.sugarBase ?? 32) +
-          randNormal(rng) * (profile.nutrition.sugarSd ?? 12) +
-          (sleepHours < 6 ? profile.nutrition.poorSleepSugarDelta : 0)
+        randNormal(rng) * (profile.nutrition.sugarSd ?? 12) +
+        (sleepHours < 6 ? profile.nutrition.poorSleepSugarDelta : 0)
       );
       sugar_g = clamp(sugar_g, 5, 200);
 
@@ -4422,6 +4520,7 @@
     setStatus("Loading sample…");
     activeSampleProfile =
       typeof profileId === "string" && profileId in SAMPLE_PROFILES ? profileId : SAMPLE_PROFILE_DEFAULT;
+    safeStorageSet(STORAGE_KEYS.activeProfile, activeSampleProfile);
     updateProfileButtonsUI();
     const payload = getOrCreateSamplePayload(activeSampleProfile);
     const text = JSON.stringify(payload, null, 2);
@@ -4433,7 +4532,7 @@
     currentModel = null;
     focusRanges = { ...FOCUS_RANGE_DEFAULTS };
     updateRangeToggleUI();
-    setHelloName("there");
+    setDashGreeting("there");
     dom.jsonInput.value = "";
     dom.fileInput.value = "";
     dom.errors.innerHTML = "";
@@ -4463,6 +4562,10 @@
     dom.focus.exerciseDay.hidden = true;
     dom.focus.exerciseDay.style.display = "none";
     dom.focus.exerciseDay.textContent = "";
+    dom.focus.exerciseNote.hidden = false;
+    dom.focus.exerciseNote.style.display = "";
+    const exerciseBody = dom.focusCharts.exercise.parentElement;
+    if (exerciseBody) exerciseBody.style.removeProperty("min-height");
     dom.focus.exerciseNote.textContent = "";
     dom.focus.bpNow.textContent = "—";
     dom.focus.bpMeta.textContent = "Last 7 days";
@@ -4472,21 +4575,19 @@
     dom.focus.weightNote.textContent = "";
     dom.focus.nutritionNow.textContent = "—";
     dom.focus.nutritionMeta.textContent = "One-day totals";
-    dom.focus.nutritionCalories.textContent = "—";
     dom.focus.nutritionCarbs.textContent = "—";
     dom.focus.nutritionProtein.textContent = "—";
     dom.focus.nutritionFat.textContent = "—";
-		    dom.focus.nutritionDay.hidden = false;
-		    dom.focus.nutritionDay.style.display = "";
-		    dom.focus.nutritionRange.hidden = true;
-		    dom.focus.nutritionRange.style.display = "none";
-		    dom.focus.nutritionGrid.hidden = false;
-		    dom.focusCharts.nutritionCalories.hidden = true;
-		    dom.focus.nutritionNote.textContent = "";
-	    renderInsights(null);
-	    for (const chart of Object.values(focusCharts)) chart.clear();
-	    setStatus("Ready");
-	  }
+    dom.focus.nutritionDay.hidden = false;
+    dom.focus.nutritionDay.style.display = "";
+    dom.focus.nutritionRange.hidden = true;
+    dom.focus.nutritionRange.style.display = "none";
+    dom.focus.nutritionMacros.hidden = false;
+    dom.focusCharts.nutritionCalories.hidden = true;
+    renderInsights(null);
+    for (const chart of Object.values(focusCharts)) chart.clear();
+    setStatus("Ready");
+  }
 
   function readFileAsText(file) {
     return new Promise((resolve, reject) => {
@@ -4537,6 +4638,12 @@
     if (!profileId) return;
     void loadSample(profileId);
   });
+
+  const storedActiveProfile = safeStorageGet(STORAGE_KEYS.activeProfile);
+  if (typeof storedActiveProfile === "string" && storedActiveProfile in SAMPLE_PROFILES) {
+    activeSampleProfile = storedActiveProfile;
+  }
+  updateProfileButtonsUI();
 
   if (dom.jsonInput.value.trim() === "") {
     void loadSample(activeSampleProfile);

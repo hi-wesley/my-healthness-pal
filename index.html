@@ -11,14 +11,32 @@
 <body>
   <div class="container">
     <header class="header">
-      <div>
-        <h1>MyHealthnessPal</h1>
-      </div>
+      <h1>MyHealthnessPal</h1>
       <div class="header-meta">
-        <div class="pill" id="helloPill">Hello, there</div>
-        <div class="pill status status--info" id="statusPill" aria-live="polite">Ready</div>
-      </div>
-    </header>
+	        <div class="profile-picker profile-picker--header" aria-label="Sample profiles">
+	          <div class="profile-picker-row" role="group" aria-label="Select sample profile">
+            <button type="button" class="profile-btn" data-profile="baseline-barry">
+              Baseline Barry
+            </button>
+            <button type="button" class="profile-btn" data-profile="weightloss-wally">
+              Weight-loss Wally
+            </button>
+            <button type="button" class="profile-btn" data-profile="athlete-anna">
+              Athlete Anna
+            </button>
+            <button type="button" class="profile-btn" data-profile="protein-paul">
+              Protein-deficient Paul
+            </button>
+            <button type="button" class="profile-btn" data-profile="hypertension-holly">
+              Hypertension Holly
+            </button>
+            <button type="button" class="profile-btn" data-profile="chronic-chloe">
+              Chronic Chloe
+            </button>
+	          </div>
+	        </div>
+	      </div>
+	    </header>
 
     <div id="errors" class="errors" role="alert"></div>
 
@@ -146,31 +164,20 @@
           </div>
           <div class="focus-body">
             <div id="nutritionDay" class="nutrition-day">
-              <div id="nutritionGrid" class="nutrition-grid">
-                <div class="nutrition-item">
-                  <div class="nutrition-label">Calories</div>
-                  <div class="nutrition-value" id="nutritionCalories">—</div>
-                </div>
-                <div class="nutrition-item">
-                  <div class="nutrition-label">Carbs</div>
-                  <div class="nutrition-value" id="nutritionCarbs">—</div>
-                </div>
-                <div class="nutrition-item">
-                  <div class="nutrition-label">Protein</div>
-                  <div class="nutrition-value" id="nutritionProtein">—</div>
-                </div>
-                <div class="nutrition-item">
-                  <div class="nutrition-label">Fat</div>
-                  <div class="nutrition-value" id="nutritionFat">—</div>
-                </div>
+              <div id="nutritionMacros" class="sleep-details">
+                <div class="sleep-row"><span class="sleep-label">Carbs</span><span class="sleep-value"
+                    id="nutritionCarbs">—</span></div>
+                <div class="sleep-row"><span class="sleep-label">Protein</span><span class="sleep-value"
+                    id="nutritionProtein">—</span></div>
+                <div class="sleep-row"><span class="sleep-label">Fat</span><span class="sleep-value"
+                    id="nutritionFat">—</span></div>
               </div>
             </div>
             <div id="nutritionRange" class="nutrition-range" hidden>
               <canvas id="focusNutritionCaloriesChart"></canvas>
             </div>
-          </div>
-          <div class="focus-note" id="nutritionNote"></div>
-        </div>
+	          </div>
+	        </div>
 
         <div class="focus-card glass">
           <div class="focus-head">
@@ -308,7 +315,7 @@
                   Athlete Anna
                 </button>
                 <button type="button" class="profile-btn" data-profile="protein-paul">
-                  Protein Paul
+                  Protein-deficient Paul
                 </button>
                 <button type="button" class="profile-btn" data-profile="hypertension-holly">
                   Hypertension Holly
