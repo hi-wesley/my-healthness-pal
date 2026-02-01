@@ -2515,7 +2515,7 @@
 
       const profile = SAMPLE_PROFILES[profileId] ?? null;
       const profileName = profile?.name ?? (typeof model?.userName === "string" ? model.userName : profileId);
-      const days = Array.isArray(model?.days) ? model.days.slice(-60) : [];
+      const days = Array.isArray(model?.days) ? model.days.slice(-30) : [];
       const timeZone =
         typeof model?.timeZone === "string" && model.timeZone.trim()
           ? model.timeZone.trim()

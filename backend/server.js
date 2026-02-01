@@ -45,12 +45,6 @@ function extractJsonObject(text) {
   }
 }
 
-function toToneScore(value) {
-  const num = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(num)) return null;
-  return Math.max(0, Math.min(100, Math.round(num)));
-}
-
 function normalizeInsightTextBlock(value) {
   if (!isPlainObject(value)) return null;
   const title = typeof value.title === "string" ? value.title.trim() : "";
@@ -69,30 +63,6 @@ function normalizeInsightsText(value) {
     nutrition: normalizeInsightTextBlock(value.nutrition),
     bp: normalizeInsightTextBlock(value.bp),
     weight: normalizeInsightTextBlock(value.weight),
-  };
-  if (!out.overall || !out.sleep || !out.stress || !out.exercise || !out.nutrition || !out.bp || !out.weight) {
-    return null;
-  }
-  return out;
-}
-
-function normalizeToneBlock(value) {
-  if (!isPlainObject(value)) return null;
-  const toneScore = toToneScore(value.toneScore ?? value.score);
-  if (toneScore === null) return null;
-  return { toneScore };
-}
-
-function normalizeToneScores(value) {
-  if (!isPlainObject(value)) return null;
-  const out = {
-    overall: normalizeToneBlock(value.overall),
-    sleep: normalizeToneBlock(value.sleep),
-    stress: normalizeToneBlock(value.stress),
-    exercise: normalizeToneBlock(value.exercise),
-    nutrition: normalizeToneBlock(value.nutrition),
-    bp: normalizeToneBlock(value.bp),
-    weight: normalizeToneBlock(value.weight),
   };
   if (!out.overall || !out.sleep || !out.stress || !out.exercise || !out.nutrition || !out.bp || !out.weight) {
     return null;
@@ -139,7 +109,7 @@ app.post("/insights", async (req, res) => {
   const dayKey = typeof body.dayKey === "string" ? body.dayKey.trim() : "";
   const timeZone =
     typeof body.timeZone === "string" && body.timeZone.trim() ? body.timeZone.trim() : "America/Los_Angeles";
-  const days = Array.isArray(body.days) ? body.days.slice(-60) : [];
+  const days = Array.isArray(body.days) ? body.days.slice(-30) : [];
 
   if (!profileId) {
     res.status(400).json({ ok: false, error: 'Missing required field "profileId".' });
@@ -206,65 +176,12 @@ app.post("/insights", async (req, res) => {
       return;
     }
 
-    const promptTone = [
-      "You are scoring the tone of insight cards for a fitness dashboard.",
-      "Score EACH card independently based ONLY on that card's title/body.",
-      "toneScore is 0–100 where 100 = very good (green), 50 = neutral (yellow), 0 = concerning (red).",
-      "Keep scores aligned with the text and avoid extremes unless clearly warranted.",
-      "",
-      `As-of dayKey: ${dayKey}`,
-      `Time zone: ${timeZone}`,
-      "",
-      "Cards to score:",
-      JSON.stringify(insightBlocks),
-      "",
-      "Return ONLY a single JSON object with EXACTLY these keys and shapes:",
-      "{",
-      '  "overall":  { "toneScore": number },',
-      '  "sleep":    { "toneScore": number },',
-      '  "stress":   { "toneScore": number },',
-      '  "exercise": { "toneScore": number },',
-      '  "nutrition":{ "toneScore": number },',
-      '  "bp":       { "toneScore": number },',
-      '  "weight":   { "toneScore": number }',
-      "}",
-    ].join("\n");
-
-    const toneResponse = await client.responses.create({
-      model: OPENAI_MODEL,
-      input: promptTone,
-      max_output_tokens: 220,
-    });
-
-    const toneText = typeof toneResponse.output_text === "string" ? toneResponse.output_text : "";
-    const toneParsed = extractJsonObject(toneText);
-    const toneBlocks = normalizeToneScores(toneParsed);
-
-    if (!toneBlocks) {
-      res.status(502).json({
-        ok: false,
-        error: "Model returned invalid toneScore JSON.",
-        raw: toneText.slice(0, 5000),
-      });
-      return;
-    }
-
-    const insights = {
-      overall: { ...insightBlocks.overall, ...toneBlocks.overall, toneDayKey: dayKey },
-      sleep: { ...insightBlocks.sleep, ...toneBlocks.sleep, toneDayKey: dayKey },
-      stress: { ...insightBlocks.stress, ...toneBlocks.stress, toneDayKey: dayKey },
-      exercise: { ...insightBlocks.exercise, ...toneBlocks.exercise, toneDayKey: dayKey },
-      nutrition: { ...insightBlocks.nutrition, ...toneBlocks.nutrition, toneDayKey: dayKey },
-      bp: { ...insightBlocks.bp, ...toneBlocks.bp, toneDayKey: dayKey },
-      weight: { ...insightBlocks.weight, ...toneBlocks.weight, toneDayKey: dayKey },
-    };
-
     res.json({
       ok: true,
       model: OPENAI_MODEL,
       dayKey,
       analysisVersion: ANALYSIS_VERSION,
-      insights,
+      insights: insightBlocks,
     });
   } catch (err) {
     res.status(500).json({
