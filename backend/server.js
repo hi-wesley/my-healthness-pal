@@ -13,9 +13,9 @@ const corsOrigin =
   corsOriginRaw === "*"
     ? "*"
     : corsOriginRaw
-        .split(",")
-        .map((o) => o.trim())
-        .filter(Boolean);
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
 
 function isPlainObject(value) {
   return (
@@ -155,9 +155,16 @@ app.post("/insights", async (req, res) => {
   }
 
   const promptText = [
-    "You are generating short, actionable, non-medical demo insights for a fitness dashboard.",
-    "Write in a friendly, direct tone. Avoid diagnosis and avoid fear-mongering.",
+    "You are generating actionable insights for a fitness dashboard.",
+    "Write in a friendly, direct tone.",
     'Format any durations as "7h 46m" (no decimals; no "min" units).',
+    "- Learn the user's recent baseline for each metric from the available days (e.g., typical level, range, and variability).",
+    "- Detect meaningful deviations (spikes/dips), short trends (2–4 days), and persistent patterns (3+ days).",
+    "- For the OVERALL insight, prioritize correlations/relationships between metrics across days.",
+    "  Examples of correlation language:",
+    "  - 'On days after shorter sleep, your afternoon calories tend to be higher.'",
+    "  - 'Higher physiological stress days often line up with higher resting heart rate the next day.'",
+    "  - 'When exercise load rises, sleep duration/quality tends to change.'",
     "",
     `Profile: ${profileName || profileId} (${profileId})`,
     `As-of dayKey: ${dayKey}`,
