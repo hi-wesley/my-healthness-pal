@@ -2660,6 +2660,7 @@ import {
     formatMacroTile,
     formatWorkoutMinutes,
     topExerciseActivities,
+    exerciseEnoughnessMessage,
     computeStressForDay,
     stressHueForScore,
     stressColorForScore,

@@ -25,6 +25,7 @@ export function createFocusRenderer(ctx) {
     formatMacroTile,
     formatWorkoutMinutes,
     topExerciseActivities,
+    exerciseEnoughnessMessage,
     computeStressForDay,
     stressHueForScore,
     stressColorForScore,
